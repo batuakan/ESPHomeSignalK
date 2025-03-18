@@ -5,8 +5,6 @@
 #include "esphome/components/sensor/sensor.h"
 
 #include <ArduinoWebsockets.h>
-#include "sensor/signalk_sensor.h"
-#include "esphome/components/signalk/text_sensor/signalk_text_sensor.h"
 #include "signalk_sensor_base.h"
 
 namespace esphome {

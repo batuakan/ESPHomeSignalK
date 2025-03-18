@@ -33,6 +33,10 @@ void SignalK::setup() {
         sensor->on_delta_received(delta["value"].as<double>());
       } else if (delta["value"].is<std::string>()) {
         sensor->on_delta_received(delta["value"].as<std::string>());
+      } else if (delta["value"].is<JsonArray>() || delta["value"].is<JsonObject>()) {
+        std::string output;
+        serializeJson(delta["value"], output);
+        sensor->on_delta_received(output);
       }
     }
   });
