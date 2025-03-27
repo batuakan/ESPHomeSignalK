@@ -1,6 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PORT
+from esphome.core import CORE
 
 CODEOWNERS = ["@batuakan"]
 DEPENDENCIES = ["wifi"]
@@ -26,7 +27,15 @@ async def to_code(config):
     cg.add(var.set_port(config[CONF_PORT]))
 
     cg.add(var.set_setup_priority(100))
-    cg.add_library("WiFiClientSecure", None)
-    cg.add_library("HTTPClient", None)
-    cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
     cg.add_library("bblanchon/ArduinoJson", "7.3.1")
+    if CORE.is_esp32 and CORE.using_esp_idf:
+        cg.add_library(
+            "esp_websocket_client",
+            None,
+            repository="https://components.espressif.com/api/downloads/?object_type=component&object_id=dbc87006-9a4b-45e6-a6ab-b286174cb413",
+        )
+    if CORE.is_esp32 and CORE.using_arduino:
+        cg.add_library("WiFiClientSecure", None)
+        cg.add_library("HTTPClient", None)
+        # cg.add_library("links2004/WebSockets", "2.6.1")
+        cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
