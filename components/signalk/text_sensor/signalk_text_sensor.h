@@ -14,9 +14,11 @@ class SignalkTextSensor : public SignalkSensorBase, public text_sensor::TextSens
   void setup() override;
   void dump_config() override;
 
-  void on_delta_received(std::string value) override;
+  void set_value(std::string value) override;
+  void update() override;
 
- protected:
+ private:
+  std::string value_;
 };
 
 }  // namespace signalk

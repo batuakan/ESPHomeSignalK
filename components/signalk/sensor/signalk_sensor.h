@@ -15,7 +15,11 @@ class SignalkSensor : public SignalkSensorBase, public sensor::Sensor, public Co
   void setup() override;
   void dump_config() override;
 
-  void on_delta_received(float value) override;
+  void set_value(float value) override;
+  void update() override;
+
+ private:
+  float value_;
 };
 
 }  // namespace signalk

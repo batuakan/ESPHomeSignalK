@@ -7,8 +7,20 @@ static const char *const TAG = "signalk";
 
 void SignalkSensor::setup() {}
 
-void SignalkSensor::on_delta_received(float value) { this->publish_state(value); }
+void SignalkSensor::set_value(float value) { 
+    this->requires_update_ = true;
+    this->value_ = value; 
+}
 
 void SignalkSensor::dump_config() {}
+
+void SignalkSensor::update() {
+    if (this->requires_update_) {
+        this->requires_update_ = false;
+        this->publish_state(this->value_);
+    }
+}
+
+
 }  // namespace signalk
 }  // namespace esphome
