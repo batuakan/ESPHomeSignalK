@@ -43,8 +43,10 @@ void SignalK::setup() {
   ESP_LOGD(TAG, "Setup");
 #ifdef USE_ESP32_FRAMEWORK_ARDUINO
   // run callback when messages are received
-  webSocketClient_.onMessage(
-      [&](WebsocketsMessage message) { ESP_LOGD(TAG, "Got Message: %s", message.data().c_str()); });
+  webSocketClient_.onMessage([&](WebsocketsMessage message) {
+    ESP_LOGD(TAG, "Got Message: %s", message.data().c_str());
+    on_receive_delta((uint8_t *) message.data().c_str(), message.data().length());
+  });
 
   // run callback when events are occuring
   webSocketClient_.onEvent([&](WebsocketsEvent event, String data) {
