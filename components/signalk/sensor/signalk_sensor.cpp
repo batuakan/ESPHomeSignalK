@@ -17,7 +17,8 @@ void SignalkSensor::dump_config() {}
 void SignalkSensor::update() {
   if (this->requires_update_) {
     this->requires_update_ = false;
-    this->publish_state(this->value_);
+    float converted_value = convert_from_base(this->value_, this->unit_);
+    this->publish_state(converted_value);
   }
 }
 
