@@ -1,0 +1,55 @@
+esphome:
+  name: signalk
+  friendly_name: SignalK Example
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+captive_portal:
+
+logger:
+  level: DEBUG
+
+json:
+
+signalk:
+  host: 192.168.0.3
+  # port: 3000 (Optional defaults to 3000)
+
+sensor:
+  - platform: signalk
+    id: environment_wind_speedApparent
+    path: environment.wind.speedApparent
+    # period: 1000
+    # format: "delta"
+    # policy: "instant"
+    # minperiod: 200
+    unit: "knots"
+
+    accuracy_decimals: 2
+    on_value:
+      - logger.log:
+          format: "Wind speed %.1f"
+          args: ['x']
+          level: INFO
+
+text_sensor:
+  - platform: signalk
+    id: navigation_position
+    path: navigation.position
+    on_value:
+      - lambda: |-
+            json::parse_json(x, [](JsonObject root) -> bool {
+                if (root["longitude"]) {
+                    ESP_LOGI("json_parser", "Longitude: %f", root["longitude"].as<float>());
+                    ESP_LOGI("json_parser", "Latitude: %f", root["latitude"].as<float>());
+                }
+                return true;
+            });
+            
