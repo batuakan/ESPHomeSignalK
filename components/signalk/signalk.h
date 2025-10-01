@@ -1,54 +1,123 @@
 #pragma once
 #include <map>
-
+#include <variant>
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 
-// #include "WiFiClientSecure.h"
-// #include "WebSocketsClient.h"
-
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-#include <ArduinoWebsockets.h>
-#endif
-
-#if defined(USE_ESP_IDF)
-#include "esp_websocket_client.h"
-#endif
-
+#include "signalk_client.h"
 #include "signalk_sensor_base.h"
+#include "utils.h"
+#include "sensor/unit_conversions.h"
 
 namespace esphome {
 namespace signalk {
 
+enum class SignalKPreferedAccessMethod { LOGIN = 0, REQUEST_ACCESS = 1 };
+
+enum class SignalKLoginState { UNKNOWN = 0, COMPLETED = 1, DENIED = 2 };
+
+enum class SignalKTokenValidationStatus { UNKNOWN = 0, COMPLETED = 1 };
+
+enum class SignalKRequestAccessState { UNKNOWN = 0, HASTOKEN = 1, PENDING = 2, COMPLETED = 3, DENIED = 4 };
+
+enum class SignalKConnectionState {
+  UNKNOWN = 0,
+  HAS_TOKEN = 1,
+
+  DISCONNECTED = 1,
+  CONNECTING = 2,
+  CONNECTED = 3
+};
+
+struct HttpResponse {
+  int status_code;
+  std::string body;
+};
+
 class SignalK : public PollingComponent {
  public:
   void dump_config() override;
-  void setup() override;
-  void update() override;
+  void login();
+  void on_connected();
+  void on_disconnected();
+  void on_message(const std::string &msg);
+  void on_receive_delta(JsonDocument &doc);
+  void publish_delta(const std::string &path, const std::variant<float, std::string> &value);
+  void send_access_request();
+  void poll_access_request();
+  void validate_token();
+  virtual void save_token();
+  virtual void load_token();
 
+  void set_device_name(std::string device_name) { device_name_ = device_name; }
   void set_host(std::string host) { host_ = host; }
   void set_port(unsigned short port) { port_ = port; }
+  void set_user_name(std::string user_name) { user_name_ = user_name; }
+  void set_user_password(std::string user_password) { user_password_ = user_password; }
+  void setup() override;
   void subscribe(SignalkSensorBase *sensor) {
     sensors_.insert(std::pair<std::string, SignalkSensorBase *>(sensor->get_path(), sensor));
   }
+  void update() override;
 
-  void on_connected();
-  void on_receive_delta(uint8_t *payload, size_t length);
+  virtual bool connect(const std::string &path) = 0;
+  virtual bool discovery() = 0;
+  virtual bool send(const std::string &msg) = 0;
+  // virtual void update() = 0;
+  virtual bool is_connected() const = 0;
+
+  virtual HttpResponse get(const std::string &path) = 0;
+  virtual HttpResponse post(const std::string &path, const std::string &msg) = 0;
 
  protected:
-  unsigned long last_millis;
-  unsigned long elapsed_duration;
-  bool connected;
-
   std::string host_;
   unsigned short port_;
+  std::string device_name_;
+  std::string user_name_;
+  std::string user_password_;
+  std::string request_access_href_;
+  std::string token_;
+
   std::map<std::string, SignalkSensorBase *> sensors_;
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-  websockets::WebsocketsClient webSocketClient_;
-#endif
-#if defined(USE_ESP_IDF)
-  esp_websocket_client_handle_t websocket_client;
-#endif
+
+  std::unique_ptr<SignalKClient> ws;
+
+  SignalKPreferedAccessMethod prefered_access_method_{SignalKPreferedAccessMethod::REQUEST_ACCESS};
+  SignalKRequestAccessState request_access_state_{SignalKRequestAccessState::UNKNOWN};
+  SignalKLoginState login_state_{SignalKLoginState::UNKNOWN};
+};
+
+using DeltaValue = std::variant<float, std::string>;
+
+template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
+ public:
+  PublishDeltaAction(SignalK *parent) : parent_(parent) {}
+  // Let value_ be either float or string
+  TEMPLATABLE_VALUE(DeltaValue, value)
+
+  void play(Ts... x) override {
+    DeltaValue val;
+    if (this->value_.has_value()) {
+      val = this->value_.value(x...);  // YAML expression result
+    } else {
+      val = std::get<0>(std::tuple<Ts...>(x...));  // forward raw x
+    }
+
+    // Dispatch based on type
+    if (std::holds_alternative<float>(val)) {
+      this->parent_->publish_delta(this->path_, convert_to_base(std::get<float>(val), unit_));
+    } else if (std::holds_alternative<std::string>(val)) {
+      this->parent_->publish_delta(this->path_, std::get<std::string>(val));
+    }
+  }
+
+  void set_path(std::string path) { path_ = path; }
+  void set_unit(Unit unit) { this->unit_ = unit; }
+
+ protected:
+  SignalK *parent_;
+  std::string path_;
+  Unit unit_;
 };
 
 }  // namespace signalk

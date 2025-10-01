@@ -151,5 +151,77 @@ float seconds_to_days(float seconds);
 float liters_to_cubic_meters(float liters);
 float liters_to_gallons(float liters);
 
+///
+/// Convert to base
+///
+
+float convert_to_base(float value, Unit sourceUnit);
+
+// Angle
+float degrees_to_radians(float degrees);
+float gradians_to_radians(float gradians);
+
+// Angular Velocity
+float degrees_per_second_to_radians_per_second(float deg_per_sec);
+float degrees_per_minute_to_radians_per_second(float deg_per_min);
+
+// Charge
+float ampere_hours_to_coulomb(float amp_hours);
+
+// Current
+float milliamperes_to_amperes(float milliamps);
+
+// Energy
+float kilowatt_hours_to_joules(float kwh);
+
+// Flow
+float liters_per_minute_to_cubic_meters_per_second(float lpm);
+float liters_per_hour_to_cubic_meters_per_second(float lph);
+float gallons_per_minute_to_cubic_meters_per_second(float gpm);
+float gallons_per_hour_to_cubic_meters_per_second(float gph);
+
+// Frequency
+float rotations_per_minute_to_hertz(float rpm);
+float kilohertz_to_hertz(float khz);
+float megahertz_to_hertz(float mhz);
+float gigahertz_to_hertz(float ghz);
+
+// Length
+float fathoms_to_meters(float fathoms);
+float feet_to_meters(float feet);
+float kilometers_to_meters(float km);
+float nautical_miles_to_meters(float nm);
+float miles_to_meters(float miles);
+
+// Potential
+float millivolts_to_volts(float millivolts);
+
+// Power
+float milliwatts_to_watts(float milliwatts);
+
+// Ratio
+float percentage_to_ratio(float percentage);
+
+// Resistance
+float kilo_ohms_to_ohms(float kohms);
+
+// Speed
+float knots_to_meters_per_second(float knots);
+float kilometers_per_hour_to_meters_per_second(float kph);
+float miles_per_hour_to_meters_per_second(float mph);
+
+// Temperature
+float celcius_to_kelvin(float celcius);
+float fahrenheit_to_kelvin(float fahrenheit);
+
+// Time
+float minutes_to_seconds(float minutes);
+float hours_to_seconds(float hours);
+float days_to_seconds(float days);
+
+// Volume
+float cubic_meters_to_liters(float cubic_meters);
+float gallons_to_liters(float gallons);
+
 }  // namespace signalk
 }  // namespace esphome

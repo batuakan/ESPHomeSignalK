@@ -1,97 +1,51 @@
 
-#include "esphome/components/signalk/signalk.h"
-#include "esphome/core/log.h"
-
 #include <ArduinoJson.h>
+
+#include "esphome/core/preferences.h"
+#include "esphome/core/application.h"
+#include "esphome/core/log.h"
+// #include "esphome/components/wifi/wifi_component.h"
+
+#include "signalk.h"
+#include "utils.h"
 
 namespace esphome {
 namespace signalk {
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-using namespace websockets;
-#endif
-
-#if defined(USE_ESP_IDF)
-SignalK *ws_client;
-
-static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-  esp_websocket_event_data_t *data = (esp_websocket_event_data_t *) event_data;
-  switch (event_id) {
-    case WEBSOCKET_EVENT_CONNECTED:
-      ESP_LOGD(__FILENAME__, "WEBSOCKET_EVENT_CONNECTED");
-      ws_client->on_connected();
-      break;
-    case WEBSOCKET_EVENT_DISCONNECTED:
-      ESP_LOGD(__FILENAME__, "WEBSOCKET_EVENT_DISCONNECTED");
-      // ws_client->on_disconnected();
-      break;
-    case WEBSOCKET_EVENT_DATA:
-      // check if the payload is text)
-      if (data->op_code == 0x01) {
-        ws_client->on_receive_delta((uint8_t *) data->data_ptr, data->data_len);
-      }
-      break;
-    case WEBSOCKET_EVENT_ERROR:
-      // ws_client->on_error();
-      break;
-  }
-}
-#endif
 
 static const char *const TAG = "signalk";
 
 void SignalK::setup() {
   ESP_LOGD(TAG, "Setup");
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-  // run callback when messages are received
-  webSocketClient_.onMessage([&](WebsocketsMessage message) {
-    ESP_LOGD(TAG, "Got Message: %s", message.data().c_str());
-    on_receive_delta((uint8_t *) message.data().c_str(), message.data().length());
-  });
+  load_token();
 
-  // run callback when events are occuring
-  webSocketClient_.onEvent([&](WebsocketsEvent event, String data) {
-    if (event == WebsocketsEvent::ConnectionOpened) {
-      ESP_LOGD(TAG, "Connnection Opened");
-    } else if (event == WebsocketsEvent::ConnectionClosed) {
-      ESP_LOGD(TAG, "Connnection Closed");
-      connected = false;
-      last_millis = millis();
-    } else if (event == WebsocketsEvent::GotPing) {
-      ESP_LOGD(TAG, "Got a Ping!");
-    } else if (event == WebsocketsEvent::GotPong) {
-      ESP_LOGD(TAG, "Got a Pong!");
-    }
-  });
+  if (!this->user_name_.empty() && !this->user_password_.empty()) {
+    prefered_access_method_ = SignalKPreferedAccessMethod::LOGIN;
+    ESP_LOGD(TAG, "Using LOGIN as prefered access method");
+  }
+  ESP_LOGD(TAG, "Using REQUEST_ACCESS as prefered access method");
+  prefered_access_method_ = SignalKPreferedAccessMethod::REQUEST_ACCESS;
 
-  on_connected();
-#endif
-#if defined(USE_ESP_IDF)
-  ws_client = this;
-  const esp_websocket_client_config_t websocket_cfg = {
-      .host = host_.c_str(), .port = port_, .path = "/signalk/v1/stream?subscribe=none"};
-
-  websocket_client = esp_websocket_client_init(&websocket_cfg);
-
-  esp_websocket_register_events(websocket_client, WEBSOCKET_EVENT_ANY, websocket_event_handler,
-                                (void *) websocket_client);
-  esp_websocket_client_start(websocket_client);
-#endif
+  if (!token_.empty()) {
+    request_access_state_ = SignalKRequestAccessState::HASTOKEN;
+  }
 }
 
 void SignalK::update() {
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-  if (!connected) {
-    // TODO: Handle millis() overflow properly
-    unsigned long now = 0;  // millis();
-    elapsed_duration += now - last_millis;
-    last_millis = now;
-    if (elapsed_duration > 5000) {
-      on_connected();
-    }
+  if (prefered_access_method_ == SignalKPreferedAccessMethod::REQUEST_ACCESS) {
+    if (this->request_access_state_ == SignalKRequestAccessState::HASTOKEN)
+      this->validate_token();
+    else if (this->request_access_state_ == SignalKRequestAccessState::UNKNOWN)
+      this->send_access_request();
+    else if (this->request_access_state_ == SignalKRequestAccessState::PENDING)
+      this->poll_access_request();
+    else if (this->request_access_state_ == SignalKRequestAccessState::COMPLETED && !is_connected())
+      this->connect("/signalk/v1/stream?subscribe=none");
   } else {
-    webSocketClient_.poll();
+    if (prefered_access_method_ == SignalKPreferedAccessMethod::LOGIN && login_state_ == SignalKLoginState::UNKNOWN)
+      this->login();
+    else if (this->login_state_ == SignalKLoginState::COMPLETED && !is_connected())
+      this->connect("/signalk/v1/stream?subscribe=none");
   }
-#endif
   for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
     it->second->update();
   }
@@ -100,16 +54,6 @@ void SignalK::update() {
 void SignalK::dump_config() {}
 
 void SignalK::on_connected() {
-  elapsed_duration = 0;
-  ESP_LOGD(TAG, "Attemping to connect to signalk server");
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-  connected = webSocketClient_.connect(host_.c_str(), port_, "/signalk/v1/stream?subscribe=none");
-  if (!connected) {
-    ESP_LOGW(TAG, "Connection attemp failed!");
-    return;
-  }
-#endif
-
   JsonDocument doc;
   doc["context"] = "vessels.self";
   JsonArray subscribe = doc["subscribe"].to<JsonArray>();
@@ -125,22 +69,212 @@ void SignalK::on_connected() {
   serializeJsonPretty(doc, output);
   ESP_LOGD(TAG, "Subscription message:");
   ESP_LOGD(TAG, output.c_str());
-#ifdef USE_ESP32_FRAMEWORK_ARDUINO
-  webSocketClient_.send(output.c_str());
-#endif
-#if defined(USE_ESP_IDF)
-  const TickType_t xDelay = 500;
-  esp_websocket_client_send_text(websocket_client, output.c_str(), output.size(), xDelay);
-#endif
+  send(output);
 }
 
-void SignalK::on_receive_delta(uint8_t *payload, size_t length) {
-  JsonDocument doc;
-  deserializeJson(doc, payload);
-  JsonArray arr = doc["updates"][0]["values"].as<JsonArray>();
-  if (arr.isNull())
-    return;
+void SignalK::on_disconnected() {
+  ESP_LOGW(TAG, "Disconnected from SignalK server");
+  login_state_ = SignalKLoginState::UNKNOWN;
+  if (!token_.empty())
+    request_access_state_ = SignalKRequestAccessState::HASTOKEN;
+  else
+    request_access_state_ = SignalKRequestAccessState::UNKNOWN;
+}
 
+void SignalK::login() {
+  if (login_state_ == SignalKLoginState::COMPLETED) {
+    return;
+  }
+  // Throttle login requests to once every 2 seconds
+  static uint32_t last_login_attempt = 0;
+  uint32_t now = sk_millis();
+  if (now - last_login_attempt < 2000) {
+    return;
+  }
+  last_login_attempt = now;
+
+  JsonDocument doc;
+  doc["username"] = this->user_name_;
+  doc["password"] = this->user_password_;
+  std::string msg;
+  serializeJson(doc, msg);
+  ESP_LOGD(TAG, "Trying to login: %s", msg.c_str());
+  auto response = post("/signalk/v1/auth/login", msg);
+  ESP_LOGD(TAG, "Login request response: %s", response.body.c_str());
+
+  JsonDocument resp_doc;
+  DeserializationError error = deserializeJson(resp_doc, response.body);
+  if (error) {
+    ESP_LOGE(TAG, "Failed to parse access request response: %s", error.c_str());
+    return;
+  }
+
+  token_ = resp_doc["token"] | "";
+  if (!token_.empty()) {
+    save_token();
+    login_state_ = SignalKLoginState::COMPLETED;
+    ESP_LOGI(TAG, "Login request successful");
+  } else if (resp_doc["result"] == 401) {
+    login_state_ = SignalKLoginState::DENIED;
+    ESP_LOGE(TAG, "Login request denied");
+  }
+}
+
+void SignalK::send_access_request() {
+  if (!token_.empty()) {
+    request_access_state_ = SignalKRequestAccessState::HASTOKEN;
+    return;
+  }
+  JsonDocument doc;
+  doc["clientId"] = get_uuid();
+  doc["description"] = "ESPHome device: " + App.get_name();
+  std::string msg;
+  serializeJson(doc, msg);
+
+  ESP_LOGD(TAG, "Trying to request access: %s", msg.c_str());
+  auto response = post("/signalk/v1/access/requests", msg);
+  ESP_LOGD(TAG, "Access request response: %s", response.body.c_str());
+
+  JsonDocument resp_doc;
+  DeserializationError error = deserializeJson(resp_doc, response.body);
+  if (error) {
+    ESP_LOGE(TAG, "Failed to parse access request response: %s", error.c_str());
+    return;
+  } else if (resp_doc["state"] == "PENDING") {
+    request_access_state_ = SignalKRequestAccessState::PENDING;
+    request_access_href_ = resp_doc["href"] | "";
+    ESP_LOGW(TAG, "Access request is pending approval");
+  } else if (resp_doc["state"] == "COMPLETED") {
+    if (resp_doc["statusCode"] == 400) {
+      request_access_href_ = resp_doc["href"] | "";
+      if (!request_access_href_.empty()) {
+        request_access_state_ = SignalKRequestAccessState::PENDING;
+        return;
+      }
+      request_access_state_ = SignalKRequestAccessState::DENIED;
+      ESP_LOGE(TAG, "Access request denied");
+      return;
+    }
+  }
+}
+
+void SignalK::poll_access_request() {
+  // Throttle down polling to once per second
+  static uint32_t last_request_access_attempt = 0;
+  uint32_t now = sk_millis();
+  if (now - last_request_access_attempt < 1000) {
+    return;
+  }
+  last_request_access_attempt = now;
+
+  auto response = get(request_access_href_);
+  ESP_LOGD(TAG, "Access request status response: %s", response.body.c_str());
+
+  JsonDocument resp_doc;
+  DeserializationError error = deserializeJson(resp_doc, response.body);
+  if (error) {
+    ESP_LOGE(TAG, "Failed to parse access request status response: %s", error.c_str());
+    return;
+  }
+  std::string state = resp_doc["state"] | "UNKNOWN";
+  if (state == "COMPLETED") {
+    if (resp_doc["accessRequest"]["permission"] == "DENIED") {
+      request_access_state_ = SignalKRequestAccessState::DENIED;
+      ESP_LOGE(TAG, "Access request denied");
+      return;
+    }
+
+    if (resp_doc["accessRequest"]["permission"] == "APPROVED") {
+      request_access_state_ = SignalKRequestAccessState::COMPLETED;
+      token_ = resp_doc["accessRequest"]["token"] | "";
+      if (!token_.empty()) {
+        save_token();
+      }
+      ESP_LOGI(TAG, "Access token: %s", token_.c_str());
+    }
+  }
+}
+
+void SignalK::validate_token() {
+  static uint32_t last_validation_attempt = 0;
+  uint32_t now = sk_millis();
+  if (now - last_validation_attempt < 2000) {
+    return;
+  }
+  last_validation_attempt = now;
+
+  auto response = get("/signalk/v1/stream");
+  ESP_LOGD(TAG, "Token validation response:  %d %s", response.status_code, response.body.c_str());
+  if (response.status_code == 426) {
+    request_access_state_ = SignalKRequestAccessState::COMPLETED;
+    ESP_LOGI(TAG, "Token validation successful");
+  } else if (response.status_code == 401) {
+    token_.clear();
+    save_token();
+    request_access_state_ = SignalKRequestAccessState::UNKNOWN;
+    ESP_LOGE(TAG, "Token validation failed: HTTP %d", response.status_code);
+  } else {
+    ESP_LOGW(TAG, "Unexpected response during token validation: HTTP %d", response.status_code);
+  }
+}
+
+void SignalK::save_token() {
+  constexpr size_t TOKEN_MAX_LENGTH = 256;
+  char token_buffer[TOKEN_MAX_LENGTH] = {0};
+  uint32_t hash = fnv1_hash("signalk" + this->host_);
+  auto pref = global_preferences->make_preference<char[TOKEN_MAX_LENGTH]>(10000, true);
+  memcpy(token_buffer, token_.c_str(), std::min(token_.size(), sizeof(token_buffer) - 1));
+  if (pref.save(&token_buffer)) {
+    ESP_LOGI(TAG, "Saved token to preferences: %s", token_.c_str());
+  } else {
+    ESP_LOGE(TAG, "Failed to save token");
+  }
+}
+
+void SignalK::load_token() {
+  constexpr size_t TOKEN_MAX_LENGTH = 256;
+  char token_buffer[TOKEN_MAX_LENGTH] = {0};
+  uint32_t hash = fnv1_hash("signalk" + this->host_);
+  auto pref = global_preferences->make_preference<char[TOKEN_MAX_LENGTH]>(10000, true);
+  if (pref.load(&token_buffer)) {
+    token_ = std::string(token_buffer);
+    if (!token_.empty()) {
+      request_access_state_ = SignalKRequestAccessState::HASTOKEN;
+      ESP_LOGI(TAG, "Loaded token: %s", token_.c_str());
+      return;
+    }
+  } else {
+    ESP_LOGW(TAG, "No token stored in flash");
+  }
+}
+
+void SignalK::on_message(const std::string &msg) {
+  ESP_LOGD(TAG, "Received message: %s", msg.c_str());
+  JsonDocument doc;
+  deserializeJson(doc, msg);
+  // Check if this is a delta message
+  JsonArray arr = doc["updates"][0]["values"].as<JsonArray>();
+  if (!arr.isNull())
+    this->on_receive_delta(doc);
+  // Check if this a token validation message
+  else if (doc["validate"].is<JsonObject>()) {
+    if (doc["validate"]["result"] == 200) {
+      request_access_state_ = SignalKRequestAccessState::COMPLETED;
+      ESP_LOGI(TAG, "Token validation successful");
+      token_ = doc["validate"]["token"] | "";
+      if (!token_.empty()) {
+        // disconnect();
+        save_token();
+      }
+    } else {
+      request_access_state_ = SignalKRequestAccessState::UNKNOWN;
+      ESP_LOGE(TAG, "Token validation failed: %s", doc["validate"]["error"] | "unknown error");
+    }
+  }
+}
+
+void SignalK::on_receive_delta(JsonDocument &doc) {
+  JsonArray arr = doc["updates"][0]["values"].as<JsonArray>();
   for (JsonVariant delta : arr) {
     if (!delta["path"].is<std::string>()) {
       continue;
@@ -157,6 +291,36 @@ void SignalK::on_receive_delta(uint8_t *payload, size_t length) {
       sensor->set_value(output);
     }
   }
+}
+
+void SignalK::publish_delta(const std::string &path, const std::variant<float, std::string> &value) {
+  if (!is_connected()) {
+    return;
+  }
+  JsonDocument doc;
+  JsonArray updates = doc["updates"].to<JsonArray>();
+
+  JsonObject update = updates.add<JsonObject>();
+
+  // JsonObject source = update["source"].to<JsonObject>();
+  // source["src"] = get_uuid();
+
+  // auto timestamp = iso_timestamp();
+  // update["timestamp"] = timestamp;
+
+  JsonArray values = update["values"].to<JsonArray>();
+  JsonObject val = values.add<JsonObject>();
+  val["path"] = path;
+  if (std::holds_alternative<float>(value)) {
+    val["value"] = std::get<float>(value);
+  } else {
+    val["value"] = std::get<std::string>(value);
+  }
+
+  std::string output;
+  serializeJson(doc, output);
+  ESP_LOGD(TAG, "Publishing delta: %s", output.c_str());
+  send(output);
 }
 
 }  // namespace signalk
