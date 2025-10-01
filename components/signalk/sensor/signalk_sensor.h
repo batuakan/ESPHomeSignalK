@@ -4,7 +4,7 @@
 #include "esphome/components/sensor/sensor.h"
 
 #include "esphome/components/signalk/signalk_sensor_base.h"
-#include "esphome/components/signalk/sensor/unit_conversions.h"
+#include "esphome/components/signalk/unit_conversions.h"
 
 class SignalK;
 

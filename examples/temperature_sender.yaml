@@ -1,0 +1,20 @@
+packages:
+  base: !include base_esp32_idf.yaml  # see above
+
+esphome:
+  name: sktempsender
+  friendly_name: SignalK Temperature Sender
+
+one_wire:
+  - platform: gpio
+    pin: GPIO16
+
+sensor:
+  - platform: dallas_temp
+    name: temperature
+    update_interval: 1s
+    address: 0x4a000000bb004f28
+    on_value:
+      - signalk.publish_delta:
+          path: "environment.temperature"
+          unit: "celcius"

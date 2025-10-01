@@ -173,7 +173,6 @@ async def to_code(config):
         # cg.add_library("links2004/WebSockets", "2.6.1")
         cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
     if CORE.is_host:
-        cg.add_library("ixwebsocket", "11.3.0")
         cg.add_build_flag("-I/usr/local/include")
         cg.add_build_flag("-L/usr/local/lib")
         cg.add_build_flag("-lixwebsocket")

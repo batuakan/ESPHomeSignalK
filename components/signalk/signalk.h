@@ -4,10 +4,9 @@
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 
-#include "signalk_client.h"
 #include "signalk_sensor_base.h"
 #include "utils.h"
-#include "sensor/unit_conversions.h"
+#include "unit_conversions.h"
 
 namespace esphome {
 namespace signalk {
@@ -19,15 +18,6 @@ enum class SignalKLoginState { UNKNOWN = 0, COMPLETED = 1, DENIED = 2 };
 enum class SignalKTokenValidationStatus { UNKNOWN = 0, COMPLETED = 1 };
 
 enum class SignalKRequestAccessState { UNKNOWN = 0, HASTOKEN = 1, PENDING = 2, COMPLETED = 3, DENIED = 4 };
-
-enum class SignalKConnectionState {
-  UNKNOWN = 0,
-  HAS_TOKEN = 1,
-
-  DISCONNECTED = 1,
-  CONNECTING = 2,
-  CONNECTED = 3
-};
 
 struct HttpResponse {
   int status_code;
@@ -79,8 +69,6 @@ class SignalK : public PollingComponent {
   std::string token_;
 
   std::map<std::string, SignalkSensorBase *> sensors_;
-
-  std::unique_ptr<SignalKClient> ws;
 
   SignalKPreferedAccessMethod prefered_access_method_{SignalKPreferedAccessMethod::REQUEST_ACCESS};
   SignalKRequestAccessState request_access_state_{SignalKRequestAccessState::UNKNOWN};
