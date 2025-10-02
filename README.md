@@ -9,6 +9,8 @@ The component supports esp-idf framework as well as esp arduino framework. It is
 Sample wind instrument view showing apparent wind angle, true wind angle, speed over ground (SOG), true wind speed (TWS), apparent wind speed (AWS) and magnetic heading using LVGL graphics library. For more information see my other project [SignalK_ESPHome_LVGL](https://github.com/batuakan/SignalK_ESPHome_LVGL)
 
 ![Wind rose](./images/Wind.png)
+![Wind rose gif](./images/Wind.gif)
+
 
 ## Installing
 
@@ -39,7 +41,7 @@ Connecting to the server can be achieved with the following configuration. If us
 
 ```yaml
 signalk:
-  host: 10.10.10.1 # Ip address for your 
+  host: 10.10.10.1 # Ip address for your server
   port: 3000 # Optional Port for signalk, defaults 3000
   username: "yourusername" #optional
   password: "yourpassword" #optional
