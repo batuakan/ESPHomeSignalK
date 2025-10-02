@@ -33,6 +33,20 @@ sensor:
 
 ## Usage
 
+### Connecting to the server
+
+Connecting to the server can be achieved with the following configuration. If username and password is present the client will connect to the server using username and password, Otherwise connection and access validation will be performed through access request process.
+
+```yaml
+signalk:
+  host: 10.10.10.1 # Ip address for your 
+  port: 3000 # Optional Port for signalk, defaults 3000
+  username: "yourusername" #optional
+  password: "yourpassword" #optional
+```
+
+### Fetching data 
+
 Signalk component provides two types sensors to fetch data from the signalk server: 
 1. **text_sensor** to fetch text/json based information 
 2. **sensor** to access numerical data. 
@@ -172,6 +186,7 @@ text_sensor:
                 return true;
             });
 ```
+### Publishing deltas
 
 In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celcius they will be converted to fahrenheit while being sent to the server.
 

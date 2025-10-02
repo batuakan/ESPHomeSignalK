@@ -16,12 +16,15 @@ static const char *const TAG = "signalk";
 
 void SignalK::setup() {
   ESP_LOGD(TAG, "Setup");
-  load_token();
+  
 
   if (!this->user_name_.empty() && !this->user_password_.empty()) {
     prefered_access_method_ = SignalKPreferedAccessMethod::LOGIN;
     ESP_LOGD(TAG, "Using LOGIN as prefered access method");
+    return;
   }
+
+  load_token();
   ESP_LOGD(TAG, "Using REQUEST_ACCESS as prefered access method");
   prefered_access_method_ = SignalKPreferedAccessMethod::REQUEST_ACCESS;
 
