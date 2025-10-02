@@ -1,0 +1,47 @@
+packages:
+  base: !include base_esp32_host.yaml  # see above
+
+substitutions:
+  # Screen Size
+  screen_height_px: '480'
+  screen_width_px: '480'
+
+esphome:
+  name: sksdldisplay
+  friendly_name: SignalK SDL Display
+
+display:
+  - platform: sdl
+    id: my_display
+    show_test_card: true
+    dimensions:
+      width: $screen_width_px
+      height: $screen_height_px
+
+touchscreen:
+  - platform: sdl
+    id: my_touchscreen
+    display: my_display
+
+sensor:
+  - platform: signalk
+    id: navigation_speedOverGround
+    path: navigation.speedOverGround
+    unit: "knots"
+    accuracy_decimals: 2
+    on_value:
+      - logger.log:
+          format: "SOG %.1f"
+          args: ['x']
+          level: DEBUG
+      - lvgl.label.update:
+          id: sog_label
+          text:
+            format: "SOG %4.1f"
+            args: [ 'x' ]
+
+lvgl:
+  widgets:
+    - label:
+        id: sog_label
+        align: CENTER

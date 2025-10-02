@@ -10,10 +10,10 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-- source:
-    type: local
-    path: ../components
-    # source: github://batuakan/ESPHomeSignalK@main
+# - source:
+#     type: local
+#     path: ../components
+  source: github://batuakan/ESPHomeSignalK@main
 
   components: [ signalk ]
 
