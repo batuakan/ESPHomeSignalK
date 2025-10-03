@@ -79,8 +79,8 @@ float convert_from_base(float value, Unit targetUnit) {
       return meters_per_second_to_miles_per_hour(value);
 
     // Temperature
-    case UNIT_CELCIUS:
-      return kelvin_to_celcius(value);
+    case UNIT_CELSIUS:
+      return kelvin_to_celsius(value);
     case UNIT_FAHRENHEIT:
       return kelvin_to_fahrenheit(value);
 
@@ -177,8 +177,8 @@ float convert_to_base(float value, Unit sourceUnit) {
       return miles_per_hour_to_meters_per_second(value);
 
     // Temperature
-    case UNIT_CELCIUS:
-      return celcius_to_kelvin(value);
+    case UNIT_CELSIUS:
+      return celsius_to_kelvin(value);
     case UNIT_FAHRENHEIT:
       return fahrenheit_to_kelvin(value);
 
@@ -264,7 +264,7 @@ float meters_per_second_to_kilometers_per_hour(float mps) { return mps * 3.6; }
 float meters_per_second_to_miles_per_hour(float mps) { return mps * 2.23694; }
 
 // Temperature
-float kelvin_to_celcius(float kelvin) { return kelvin - 273.15; }
+float kelvin_to_celsius(float kelvin) { return kelvin - 273.15; }
 
 float kelvin_to_fahrenheit(float kelvin) { return (kelvin - 273.15) * 9.0 / 5.0 + 32.0; }
 
@@ -340,7 +340,7 @@ float kilometers_per_hour_to_meters_per_second(float kph) { return kph / 3.6; }
 float miles_per_hour_to_meters_per_second(float mph) { return mph / 2.23694; }
 
 // Temperature
-float celcius_to_kelvin(float celcius) { return celcius + 273.15; }
+float celsius_to_kelvin(float celsius) { return celsius + 273.15; }
 float fahrenheit_to_kelvin(float fahrenheit) { return (fahrenheit - 32.0) * 5.0 / 9.0 + 273.15; }
 
 // Time

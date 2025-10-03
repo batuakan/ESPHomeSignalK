@@ -94,7 +94,7 @@ UNIT = {
     "miles_per_hour": Unit.UNIT_MILES_PER_HOUR,
     # Temperature
     "kelvin": Unit.UNIT_KELVIN,
-    "celcius": Unit.UNIT_CELCIUS,
+    "celsius": Unit.UNIT_CELSIUS,
     "fahrenheit": Unit.UNIT_FAHRENHEIT,
     # Time
     "seconds": Unit.UNIT_SECONDS,

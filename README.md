@@ -137,7 +137,7 @@ Each sensor must declare an id and signalk path, other optional values are:
 
   `Temperature`
   kelvin,
-  celcius,
+  celsius,
   fahrenheit
 
   `Time`
@@ -190,7 +190,7 @@ text_sensor:
 ```
 ### Publishing deltas
 
-In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celcius they will be converted to fahrenheit while being sent to the server.
+In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celsius they will be converted to fahrenheit while being sent to the server.
 
 
 ```yaml
@@ -205,7 +205,7 @@ sensor:
   on_value:
     - signalk.publish_delta:
         path: "environment.temperature"
-        unit: "celcius"
+        unit: "celsius"
 ```
 
 ## Contributing

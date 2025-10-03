@@ -74,7 +74,7 @@ typedef enum {
 
   // Temperature
   UNIT_KELVIN,  // BASE
-  UNIT_CELCIUS,
+  UNIT_CELSIUS,
   UNIT_FAHRENHEIT,
 
   // Time
@@ -139,7 +139,7 @@ float meters_per_second_to_kilometers_per_hour(float mps);
 float meters_per_second_to_miles_per_hour(float mps);
 
 // Temperature
-float kelvin_to_celcius(float kelvin);
+float kelvin_to_celsius(float kelvin);
 float kelvin_to_fahrenheit(float kelvin);
 
 // Time
@@ -211,7 +211,7 @@ float kilometers_per_hour_to_meters_per_second(float kph);
 float miles_per_hour_to_meters_per_second(float mph);
 
 // Temperature
-float celcius_to_kelvin(float celcius);
+float celsius_to_kelvin(float celsius);
 float fahrenheit_to_kelvin(float fahrenheit);
 
 // Time

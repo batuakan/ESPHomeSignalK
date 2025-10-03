@@ -17,4 +17,4 @@ sensor:
     on_value:
       - signalk.publish_delta:
           path: "environment.temperature"
-          unit: "celcius"
+          unit: "celsius"
