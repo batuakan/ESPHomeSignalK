@@ -4,7 +4,6 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 
 #include "esphome/components/signalk/signalk_sensor_base.h"
-class SignalK;
 
 namespace esphome {
 namespace signalk {

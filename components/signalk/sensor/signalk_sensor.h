@@ -6,8 +6,6 @@
 #include "esphome/components/signalk/signalk_sensor_base.h"
 #include "esphome/components/signalk/unit_conversions.h"
 
-class SignalK;
-
 namespace esphome {
 namespace signalk {
 
@@ -16,12 +14,12 @@ class SignalkSensor : public SignalkSensorBase, public sensor::Sensor, public Co
   void setup() override;
   void dump_config() override;
 
-  void set_value(float value) override;
+  void set_value(double value) override;
   void set_unit(Unit unit) { this->unit_ = unit; }
   void update() override;
 
  private:
-  float value_;
+  double value_;
   Unit unit_;
 };
 

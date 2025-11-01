@@ -1,9 +1,10 @@
 
-#include <ArduinoJson.h>
+
 
 #include "esphome/core/preferences.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#include <regex>
 // #include "esphome/components/wifi/wifi_component.h"
 
 #include "signalk.h"
@@ -50,7 +51,9 @@ void SignalK::update() {
       this->connect("/signalk/v1/stream?subscribe=none");
   }
   for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-    it->second->update();
+    if (it->second != NULL) {
+      it->second->update();
+    } 
   }
 }
 
@@ -70,8 +73,7 @@ void SignalK::on_connected() {
   }
   std::string output;
   serializeJsonPretty(doc, output);
-  ESP_LOGD(TAG, "Subscription message:");
-  ESP_LOGD(TAG, output.c_str());
+  ESP_LOGD(TAG, "Subscription message: %s", output.c_str());
   send(output);
 }
 
@@ -260,20 +262,6 @@ void SignalK::on_message(const std::string &msg) {
   if (!arr.isNull())
     this->on_receive_delta(doc);
   // Check if this a token validation message
-  else if (doc["validate"].is<JsonObject>()) {
-    if (doc["validate"]["result"] == 200) {
-      request_access_state_ = SignalKRequestAccessState::COMPLETED;
-      ESP_LOGI(TAG, "Token validation successful");
-      token_ = doc["validate"]["token"] | "";
-      if (!token_.empty()) {
-        // disconnect();
-        save_token();
-      }
-    } else {
-      request_access_state_ = SignalKRequestAccessState::UNKNOWN;
-      ESP_LOGE(TAG, "Token validation failed: %s", doc["validate"]["error"] | "unknown error");
-    }
-  }
 }
 
 void SignalK::on_receive_delta(JsonDocument &doc) {
@@ -284,19 +272,40 @@ void SignalK::on_receive_delta(JsonDocument &doc) {
     }
     auto path = delta["path"].as<std::string>();
     auto sensor = sensors_[path];
-    if (delta["value"].is<double>()) {
-      sensor->set_value(delta["value"].as<double>());
-    } else if (delta["value"].is<std::string>()) {
-      sensor->set_value(delta["value"].as<std::string>());
-    } else if (delta["value"].is<JsonArray>() || delta["value"].is<JsonObject>()) {
-      std::string output;
-      serializeJson(delta["value"], output);
-      sensor->set_value(output);
+    if (sensor == NULL)
+    {
+      //Exact key match was not found, lets try regex matching
+      for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+        if (std::regex_match(path, std::regex(it->first))) {
+          set_sensor_value(it->second, delta["value"]);
+        }
+      }
     }
+    if (sensor != NULL)
+    {
+      set_sensor_value(sensor, delta["value"]);
+    }    
   }
 }
 
-void SignalK::publish_delta(const std::string &path, const std::variant<float, std::string> &value) {
+void SignalK::set_sensor_value(SignalkSensorBase *sensor, JsonVariant value) {
+  if (sensor == NULL) {
+    return;
+  }
+  if (value.is<double>()) {
+    sensor->set_value((double)(value.as<double>()));
+  } else if (value.is<std::string>()) {
+    sensor->set_value(value.as<std::string>());
+  } else if (value.is<bool>()) {
+    sensor->set_value(value.as<bool>());
+  } else if (value.is<JsonArray>() || value.is<JsonObject>()) {
+    std::string output;
+    serializeJson(value, output);
+    sensor->set_value(output);
+  }
+}
+
+void SignalK::publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value) {
   if (!is_connected()) {
     return;
   }
@@ -314,8 +323,10 @@ void SignalK::publish_delta(const std::string &path, const std::variant<float, s
   JsonArray values = update["values"].to<JsonArray>();
   JsonObject val = values.add<JsonObject>();
   val["path"] = path;
-  if (std::holds_alternative<float>(value)) {
-    val["value"] = std::get<float>(value);
+  if (std::holds_alternative<double>(value)) {
+    val["value"] = std::get<double>(value);
+  } else if (std::holds_alternative<bool>(value)) {
+    val["value"] = std::get<bool>(value) == true ? 1 : 0;
   } else {
     val["value"] = std::get<std::string>(value);
   }

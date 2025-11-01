@@ -25,8 +25,10 @@ CONF_SIGNALK_PATH = "signalk_path"
 signalk_ns = cg.esphome_ns.namespace("signalk")
 if CORE.is_esp32 and CORE.using_esp_idf:
     signalk = signalk_ns.class_("SignalKEspIdf", cg.PollingComponent)
+    DEPENDENCIES = ["wifi"]
 elif CORE.is_esp32 and CORE.using_arduino:
     signalk = signalk_ns.class_("SignalKArduino", cg.PollingComponent)
+    DEPENDENCIES = ["wifi"]
 elif CORE.is_host:
     signalk = signalk_ns.class_("SignalKx86", cg.PollingComponent)
 else:
@@ -110,6 +112,8 @@ UNIT = {
 
 PublishDeltaAction = signalk_ns.class_("PublishDeltaAction")
 PublishDeltaActionFloat = PublishDeltaAction.template(cg.float_)
+PublishDeltaActionBool = PublishDeltaAction.template(cg.bool_)
+
 PublishDeltaActionString = PublishDeltaAction.template(cg.std_string)
 
 CONFIG_SCHEMA = cv.Schema(

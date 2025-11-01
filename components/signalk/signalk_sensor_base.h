@@ -1,18 +1,15 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include "esphome/components/sensor/sensor.h"
-
-class SignalK;
 
 namespace esphome {
 namespace signalk {
 
-// template <typename T>
 class SignalkSensorBase {
  public:
   virtual void update() {}
-  virtual void set_value(float value) {}
+  virtual void set_value(bool value) {}
+  virtual void set_value(double value) {}
   virtual void set_value(std::string value) {}
 
   void set_path(std::string path) { path_ = path; }
@@ -28,7 +25,6 @@ class SignalkSensorBase {
   int get_min_period() { return min_period_; }
 
  protected:
-  // SignalK *parent_;
   std::string path_;
   int period_;
   std::string format_;

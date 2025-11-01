@@ -7,7 +7,7 @@ static const char *const TAG = "signalk";
 
 void SignalkSensor::setup() {}
 
-void SignalkSensor::set_value(float value) {
+void SignalkSensor::set_value(double value) {
   this->requires_update_ = true;
   this->value_ = value;
 }

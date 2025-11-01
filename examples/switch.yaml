@@ -1,0 +1,15 @@
+packages:
+  base: !include base_esp32_idf.yaml  # see above
+
+esphome:
+  name: skswitch
+  friendly_name: SignalK Switch
+
+switch:
+  - platform: signalk
+    name: "Signalk Controlled Switch"
+    path: "electrical.switches.test.state"
+    on_turn_on:
+      - logger.log: "Switch turned ON from SignalK"
+    on_turn_off:
+      - logger.log: "Switch turned OFF from SignalK"

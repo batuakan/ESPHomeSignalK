@@ -2,8 +2,10 @@
 #include <map>
 #include <variant>
 #include "esphome/core/component.h"
-#include "esphome/components/sensor/sensor.h"
+#include "esphome/core/automation.h"
 
+// #include "esphome/components/sensor/sensor.h"
+#include <ArduinoJson.h>
 #include "signalk_sensor_base.h"
 #include "utils.h"
 #include "unit_conversions.h"
@@ -32,7 +34,7 @@ class SignalK : public PollingComponent {
   void on_disconnected();
   void on_message(const std::string &msg);
   void on_receive_delta(JsonDocument &doc);
-  void publish_delta(const std::string &path, const std::variant<float, std::string> &value);
+  void publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value);
   void send_access_request();
   void poll_access_request();
   void validate_token();
@@ -44,6 +46,7 @@ class SignalK : public PollingComponent {
   void set_port(unsigned short port) { port_ = port; }
   void set_user_name(std::string user_name) { user_name_ = user_name; }
   void set_user_password(std::string user_password) { user_password_ = user_password; }
+  void set_sensor_value(SignalkSensorBase *sensor, JsonVariant value);
   void setup() override;
   void subscribe(SignalkSensorBase *sensor) {
     sensors_.insert(std::pair<std::string, SignalkSensorBase *>(sensor->get_path(), sensor));
@@ -75,7 +78,7 @@ class SignalK : public PollingComponent {
   SignalKLoginState login_state_{SignalKLoginState::UNKNOWN};
 };
 
-using DeltaValue = std::variant<float, std::string>;
+using DeltaValue = std::variant<float, std::string, bool>;
 
 template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
  public:
@@ -94,7 +97,10 @@ template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
     // Dispatch based on type
     if (std::holds_alternative<float>(val)) {
       this->parent_->publish_delta(this->path_, convert_to_base(std::get<float>(val), unit_));
-    } else if (std::holds_alternative<std::string>(val)) {
+    } else if (std::holds_alternative<bool>(val)){
+      this->parent_->publish_delta(this->path_, std::get<bool>(val));
+    } 
+    else if (std::holds_alternative<std::string>(val)) {
       this->parent_->publish_delta(this->path_, std::get<std::string>(val));
     }
   }
