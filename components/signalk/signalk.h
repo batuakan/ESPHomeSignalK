@@ -6,12 +6,13 @@
 
 // #include "esphome/components/sensor/sensor.h"
 #include <ArduinoJson.h>
-#include "signalk_sensor_base.h"
+#include "signalk_subscriber.h"
 #include "utils.h"
 #include "unit_conversions.h"
 
 namespace esphome {
 namespace signalk {
+
 
 enum class SignalKPreferedAccessMethod { LOGIN = 0, REQUEST_ACCESS = 1 };
 
@@ -33,8 +34,9 @@ class SignalK : public PollingComponent {
   void on_connected();
   void on_disconnected();
   void on_message(const std::string &msg);
-  void on_receive_delta(JsonDocument &doc);
+  void on_receive_delta(JsonArray &arr);
   void publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value);
+  void publish_meta_delta(SignalkSubscriber *subscriber);
   void send_access_request();
   void poll_access_request();
   void validate_token();
@@ -46,10 +48,10 @@ class SignalK : public PollingComponent {
   void set_port(unsigned short port) { port_ = port; }
   void set_user_name(std::string user_name) { user_name_ = user_name; }
   void set_user_password(std::string user_password) { user_password_ = user_password; }
-  void set_sensor_value(SignalkSensorBase *sensor, JsonVariant value);
+  void set_sensor_value(SignalkSubscriber *sensor, JsonVariant value);
   void setup() override;
-  void subscribe(SignalkSensorBase *sensor) {
-    sensors_.insert(std::pair<std::string, SignalkSensorBase *>(sensor->get_path(), sensor));
+  void subscribe(SignalkSubscriber *sensor) {
+    sensors_.insert(std::pair<std::string, SignalkSubscriber *>(sensor->get_path(), sensor));
   }
   void update() override;
 
@@ -71,7 +73,7 @@ class SignalK : public PollingComponent {
   std::string request_access_href_;
   std::string token_;
 
-  std::map<std::string, SignalkSensorBase *> sensors_;
+  std::map<std::string, SignalkSubscriber *> sensors_;
 
   SignalKPreferedAccessMethod prefered_access_method_{SignalKPreferedAccessMethod::REQUEST_ACCESS};
   SignalKRequestAccessState request_access_state_{SignalKRequestAccessState::UNKNOWN};

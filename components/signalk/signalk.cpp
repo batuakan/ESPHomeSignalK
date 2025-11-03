@@ -50,10 +50,13 @@ void SignalK::update() {
     else if (this->login_state_ == SignalKLoginState::COMPLETED && !is_connected())
       this->connect("/signalk/v1/stream?subscribe=none");
   }
-  for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-    if (it->second != NULL) {
-      it->second->update();
-    } 
+  if (is_connected())
+  {
+    for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+      if (it->second != NULL) {
+        it->second->update();
+      } 
+    }
   }
 }
 
@@ -84,6 +87,9 @@ void SignalK::on_disconnected() {
     request_access_state_ = SignalKRequestAccessState::HASTOKEN;
   else
     request_access_state_ = SignalKRequestAccessState::UNKNOWN;
+  for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+    it->second->disconnected();
+  }
 }
 
 void SignalK::login() {
@@ -260,12 +266,15 @@ void SignalK::on_message(const std::string &msg) {
   // Check if this is a delta message
   JsonArray arr = doc["updates"][0]["values"].as<JsonArray>();
   if (!arr.isNull())
-    this->on_receive_delta(doc);
+    this->on_receive_delta(arr);
+  JsonArray put_arr = doc["put"].as<JsonArray>();
+  if (!put_arr.isNull())
+    this->on_receive_delta(put_arr);
   // Check if this a token validation message
 }
 
-void SignalK::on_receive_delta(JsonDocument &doc) {
-  JsonArray arr = doc["updates"][0]["values"].as<JsonArray>();
+void SignalK::on_receive_delta(JsonArray &arr) {
+  // JsonArray arr = doc["updates"][0]["values"].as<JsonArray>();
   for (JsonVariant delta : arr) {
     if (!delta["path"].is<std::string>()) {
       continue;
@@ -288,21 +297,11 @@ void SignalK::on_receive_delta(JsonDocument &doc) {
   }
 }
 
-void SignalK::set_sensor_value(SignalkSensorBase *sensor, JsonVariant value) {
+void SignalK::set_sensor_value(SignalkSubscriber *sensor, JsonVariant value) {
   if (sensor == NULL) {
     return;
   }
-  if (value.is<double>()) {
-    sensor->set_value((double)(value.as<double>()));
-  } else if (value.is<std::string>()) {
-    sensor->set_value(value.as<std::string>());
-  } else if (value.is<bool>()) {
-    sensor->set_value(value.as<bool>());
-  } else if (value.is<JsonArray>() || value.is<JsonObject>()) {
-    std::string output;
-    serializeJson(value, output);
-    sensor->set_value(output);
-  }
+  sensor->set_value(value);
 }
 
 void SignalK::publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value) {
@@ -326,7 +325,7 @@ void SignalK::publish_delta(const std::string &path, const std::variant<double, 
   if (std::holds_alternative<double>(value)) {
     val["value"] = std::get<double>(value);
   } else if (std::holds_alternative<bool>(value)) {
-    val["value"] = std::get<bool>(value) == true ? 1 : 0;
+    val["value"] = std::get<bool>(value);
   } else {
     val["value"] = std::get<std::string>(value);
   }
@@ -335,6 +334,30 @@ void SignalK::publish_delta(const std::string &path, const std::variant<double, 
   serializeJson(doc, output);
   ESP_LOGD(TAG, "Publishing delta: %s", output.c_str());
   send(output);
+}
+
+void SignalK::publish_meta_delta(SignalkSubscriber *subscriber)
+{
+  if (!is_connected()) {
+    return;
+  }
+  JsonDocument doc;
+  JsonArray updates = doc["updates"].to<JsonArray>();
+
+  JsonObject update = updates.add<JsonObject>();
+
+  JsonArray metas = update["meta"].to<JsonArray>();
+  JsonObject meta = metas.add<JsonObject>();
+  meta["path"] = subscriber->get_path();
+  JsonObject value = meta["value"].to<JsonObject>();
+  subscriber->to_json(value);
+  
+
+  std::string output;
+  serializeJson(doc, output);
+  ESP_LOGD(TAG, "Publishing meta delta: %s", output.c_str());
+  send(output);
+
 }
 
 }  // namespace signalk

@@ -116,6 +116,43 @@ PublishDeltaActionBool = PublishDeltaAction.template(cg.bool_)
 
 PublishDeltaActionString = PublishDeltaAction.template(cg.std_string)
 
+# Schema for zones array
+SIGNALK_ZONE_SCHEMA = cv.Schema(
+    {
+        cv.Optional("lower"): cv.float_,
+        cv.Optional("upper"): cv.float_,
+        cv.Required("state"): cv.one_of("normal", "warn", "alarm", "emergency", lower=True),
+        cv.Optional("message"): cv.string,
+    }
+)
+
+# Schema for displayScale
+SIGNALK_DISPLAY_SCALE_SCHEMA = cv.Schema(
+    {
+        cv.Required("lower"): cv.float_,
+        cv.Required("upper"): cv.float_,
+        cv.Required("type"): cv.one_of("linear", "log", lower=True),
+    }
+)
+
+# Schema for metadata block
+SIGNALK_META_SCHEMA = cv.Schema(
+    {
+        cv.Optional("displayName"): cv.string,
+        cv.Optional("longName"): cv.string,
+        cv.Optional("shortName"): cv.string,
+        cv.Optional("description"): cv.string,
+        cv.Optional("units"): cv.string,  # could restrict to known units if desired
+        cv.Optional("timeout"): cv.positive_float,
+        cv.Optional("displayScale"): SIGNALK_DISPLAY_SCALE_SCHEMA,
+        cv.Optional("alertMethod"): cv.ensure_list(cv.string),
+        cv.Optional("warnMethod"): cv.ensure_list(cv.string),
+        cv.Optional("alarmMethod"): cv.ensure_list(cv.string),
+        cv.Optional("emergencyMethod"): cv.ensure_list(cv.string),
+        cv.Optional("zones"): cv.ensure_list(SIGNALK_ZONE_SCHEMA),
+    }
+)
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(signalk),

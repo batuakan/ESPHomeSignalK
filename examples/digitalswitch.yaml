@@ -1,0 +1,28 @@
+packages:
+  base: !include base_esp32_host.yaml  # see above
+
+esphome:
+  name: digitalswitch
+  friendly_name: SignalK Switch
+
+output:
+  - platform: gpio
+    pin: GPIO22
+    id: 'relay1'
+
+switch:
+  - platform: signalk
+    name: "Cabin Lights"
+    path: "electrical.switches.test.state"
+    restore_mode: RESTORE_DEFAULT_OFF
+    meta:
+      shortName: "Cabin"
+      longName: "Cabin Lights 1"
+
+    on_turn_on:
+      - logger.log: "Switch turned ON from SignalK"
+      - output.turn_on: relay1
+      
+    on_turn_off:
+      - logger.log: "Switch turned OFF from SignalK"
+      - output.turn_off: relay1
