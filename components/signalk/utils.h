@@ -6,6 +6,13 @@
 #include <sys/time.h>
 #include <string>
 
+inline bool match_path(const std::string& path, const std::string& pattern) {
+    if (pattern.back() == '*') {
+        return path.rfind(pattern.substr(0, pattern.size() - 1), 0) == 0;
+    }
+    return path == pattern;
+}
+
 inline std::string generate_random_guid() {
   char guid[37];
   uint32_t rnd[4];
@@ -14,6 +21,16 @@ inline std::string generate_random_guid() {
   }
   snprintf(guid, sizeof(guid), "%08x-%04x-%04x-%04x-%04x%04x", rnd[0], rnd[1] >> 16, rnd[1] & 0xFFFF, rnd[2] >> 16,
            rnd[2] & 0xFFFF, rnd[3]);
+  return std::string(guid);
+}
+
+inline std::string generate_requestid() {
+  char guid[21];
+  uint32_t rnd[4];
+  for (int i = 0; i < 4; ++i) {
+    rnd[i] = random();
+  }
+  snprintf(guid, sizeof(guid), "%06x-%06x-%06x", rnd[0] >> 16, rnd[1] >> 16, rnd[2] >> 16);
   return std::string(guid);
 }
 

@@ -1,112 +1,46 @@
 #pragma once
 
-#include <map>
-#include <string>
-#include <vector>
-#include <variant>
 #include <ArduinoJson.h>
+#include <string>
 
-namespace esphome
-{
-namespace signalk
-{
+class SignalKMetadata {
+ public:
+  SignalKMetadata() {
+    doc_.to<JsonObject>();  // Ensure root is object
+  }
 
-    class SignalKMetadata
-    {
-    public:
-        using MetaValue = std::variant<std::string, double, bool,
-                                        std::vector<std::string>>;
+  /// Returns a writable JsonObject view
+  JsonObject obj() {
+    return doc_.as<JsonObject>();
+  }
 
-        // Store key/value metadata
-        void add_metadata(const std::string &key, const std::string &value)
-        {
-            this->meta_[key] = value;
-        }
+  /// Returns a const JsonVariant for output
+  JsonVariantConst view() const {
+    return doc_.as<JsonVariantConst>();
+  }
 
-        void add_metadata(const std::string &key, double value)
-        {
-            this->meta_[key] = value;
-        }
+  /// Add/overwrite a simple value
+  template <typename T>
+  void set(const std::string &key, const T &value) {
+    doc_[key.c_str()] = value;
+  }
 
-        void add_metadata(const std::string &key, bool value)
-        {
-            this->meta_[key] = value;
-        }
+  /// Add array value
+  void set_array(const std::string &key, const std::vector<std::string> &values) {
+    JsonArray arr = doc_[key.c_str()].to<JsonArray>();
+    for (auto &v : values) arr.add(v);
+  }
 
-        void add_metadata(const std::string &key, const std::vector<std::string> &value)
-        {
-            this->meta_[key] = value;
-        }
+  /// Get nested object, creating if not exist
+  JsonObject ensure_object(const std::string &key) {
+    return doc_[key.c_str()].to<JsonObject>();
+  }
 
-         /// Copy structure into ArduinoJson object
-        void to_json(JsonVariant &meta) const {
-            for (const auto &kv : meta_) {
-                const auto &key = kv.first;
-                const auto &val = kv.second;
+  /// Copy metadata into outgoing JSON root/variant
+  void to_json(JsonVariant dst) const {
+    dst.set(doc_.as<JsonVariantConst>());
+  }
 
-                if (std::holds_alternative<std::string>(val))
-                {
-                    meta[key] = std::get<std::string>(val);
-                }
-
-                if (std::holds_alternative<double>(val))
-                {
-                    meta[key] = std::get<double>(val);
-                }
-
-                if (std::holds_alternative<bool>(val))
-                {
-                    meta[key] = std::get<bool>(val);
-                }
-
-                if (std::holds_alternative<std::vector<std::string>>(val))
-                {
-                    JsonArray arr = meta[key].to<JsonArray>(); // create array
-                    for (const auto &s : std::get<std::vector<std::string>>(val))
-                    {
-                        arr.add(s);
-                    }
-                    return;
-                }
-            }
-        }
-
-    private:
-        std::map<std::string, MetaValue> meta_;
-
-        static void value_to_json(JsonVariant dst, const MetaValue &v)
-        {
-            if (std::holds_alternative<std::string>(v))
-            {
-                dst.set(std::get<std::string>(v));
-                return;
-            }
-
-            if (std::holds_alternative<double>(v))
-            {
-                dst.set(std::get<double>(v));
-                return;
-            }
-
-            if (std::holds_alternative<bool>(v))
-            {
-                dst.set(std::get<bool>(v));
-                return;
-            }
-
-            if (std::holds_alternative<std::vector<std::string>>(v))
-            {
-                JsonArray arr = dst.to<JsonArray>(); // create array
-                for (const auto &s : std::get<std::vector<std::string>>(v))
-                {
-                    arr.add(s);
-                }
-                return;
-            }
-
-            dst.set(nullptr); // default
-        }
-    };
-
-} // namespace signalk
-} // namespace esphome
+ private:
+  JsonDocument doc_;
+};

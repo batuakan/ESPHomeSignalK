@@ -53,9 +53,10 @@ void SignalK::update() {
   if (is_connected())
   {
     for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-      if (it->second != NULL) {
-        it->second->update();
-      } 
+      (*it)->update();
+      // if (it->second != NULL) {
+      //   it->second->update();
+      // } 
     }
   }
 }
@@ -63,16 +64,21 @@ void SignalK::update() {
 void SignalK::dump_config() {}
 
 void SignalK::on_connected() {
+  std::set<std::string> topics;
   JsonDocument doc;
   doc["context"] = "vessels.self";
   JsonArray subscribe = doc["subscribe"].to<JsonArray>();
   for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+    auto path = (*it)->get_path();
+    if (topics.find(path) != topics.end())
+      continue;
     JsonObject subscription = subscribe.add<JsonObject>();
-    subscription["path"] = it->second->get_path();
-    subscription["period"] = it->second->get_period();
-    subscription["format"] = it->second->get_format();
-    subscription["policy"] = it->second->get_policy();
-    subscription["minPeriod"] = it->second->get_min_period();
+    subscription["path"] = path;
+    subscription["period"] = (*it)->get_period();
+    subscription["format"] = (*it)->get_format();
+    subscription["policy"] = (*it)->get_policy();
+    subscription["minPeriod"] = (*it)->get_min_period();
+    topics.insert(path);
   }
   std::string output;
   serializeJsonPretty(doc, output);
@@ -88,7 +94,8 @@ void SignalK::on_disconnected() {
   else
     request_access_state_ = SignalKRequestAccessState::UNKNOWN;
   for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-    it->second->disconnected();
+    // it->second->disconnected();
+    (*it)->disconnected();
   }
 }
 
@@ -136,6 +143,13 @@ void SignalK::send_access_request() {
     request_access_state_ = SignalKRequestAccessState::HASTOKEN;
     return;
   }
+  // Throttle login requests to once every 2 seconds
+  static uint32_t last_request_attempt = 0;
+  uint32_t now = sk_millis();
+  if (now - last_request_attempt < 2000) {
+    return;
+  }
+  last_request_attempt = now;
   JsonDocument doc;
   doc["clientId"] = get_uuid();
   doc["description"] = "ESPHome device: " + App.get_name();
@@ -213,7 +227,7 @@ void SignalK::validate_token() {
     return;
   }
   last_validation_attempt = now;
-
+  ESP_LOGD(TAG, "Validating token");
   auto response = get("/signalk/v1/stream");
   ESP_LOGD(TAG, "Token validation response:  %d %s", response.status_code, response.body.c_str());
   if (response.status_code == 426) {
@@ -280,20 +294,33 @@ void SignalK::on_receive_delta(JsonArray &arr) {
       continue;
     }
     auto path = delta["path"].as<std::string>();
-    auto sensor = sensors_[path];
-    if (sensor == NULL)
-    {
-      //Exact key match was not found, lets try regex matching
+    // bool found = false;
+    // auto sensor = sensors_[path];
+
+    // if (sensor == NULL)
+    // {
       for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-        if (std::regex_match(path, std::regex(it->first))) {
-          set_sensor_value(it->second, delta["value"]);
+        if ((*it)->get_path() == path)
+        {
+          set_sensor_value(*it, delta["value"]);
         }
       }
-    }
-    if (sensor != NULL)
-    {
-      set_sensor_value(sensor, delta["value"]);
-    }    
+      //Exact key match was not found, lets try regexish matching
+      for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+        if (match_path(path, (*it)->get_path())) {
+            set_sensor_value(*it, delta["value"]);
+        }
+      }
+      // for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+      //   if (std::regex_match(path, std::regex((*it)->get_path()))) {
+      //     set_sensor_value((*it), delta["value"]);
+      //   }
+      // }
+    
+    // if (sensor != NULL)
+    // {
+    //   set_sensor_value(sensor, delta["value"]);
+    // }    
   }
 }
 
@@ -302,6 +329,30 @@ void SignalK::set_sensor_value(SignalkSubscriber *sensor, JsonVariant value) {
     return;
   }
   sensor->set_value(value);
+}
+
+void SignalK::put_request(const std::string &path, const std::variant<double, std::string, bool> &value) {
+  if (!is_connected()) {
+    return;
+  }
+  JsonDocument doc;
+  doc["context"] = "vessels.self";
+  doc["requestId"] = generate_requestid();
+  JsonObject put = doc["put"].to<JsonObject>();
+  put["path"] = path;
+
+  if (std::holds_alternative<double>(value)) {
+    put["value"] = std::get<double>(value);
+  } else if (std::holds_alternative<bool>(value)) {
+    put["value"] = std::get<bool>(value);
+  } else {
+    put["value"] = std::get<std::string>(value);
+  }
+
+  std::string output;
+  serializeJson(doc, output);
+  ESP_LOGD(TAG, "Put request: %s", output.c_str());
+  send(output);
 }
 
 void SignalK::publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value) {

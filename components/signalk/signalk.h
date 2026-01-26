@@ -1,5 +1,7 @@
 #pragma once
 #include <map>
+#include <set>
+#include <vector>
 #include <variant>
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
@@ -37,6 +39,7 @@ class SignalK : public PollingComponent {
   void on_receive_delta(JsonArray &arr);
   void publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value);
   void publish_meta_delta(SignalkSubscriber *subscriber);
+  void put_request(const std::string &path, const std::variant<double, std::string, bool> &value);
   void send_access_request();
   void poll_access_request();
   void validate_token();
@@ -51,7 +54,14 @@ class SignalK : public PollingComponent {
   void set_sensor_value(SignalkSubscriber *sensor, JsonVariant value);
   void setup() override;
   void subscribe(SignalkSubscriber *sensor) {
-    sensors_.insert(std::pair<std::string, SignalkSubscriber *>(sensor->get_path(), sensor));
+    // Accessing elements using find()
+    auto it = topics_.find(sensor->get_path());
+    if (it == topics_.end())
+    {
+      topics_.insert(sensor->get_path());
+    }
+    sensors_.push_back(sensor);
+    // sensors_.insert(std::pair<std::string, SignalkSubscriber *>(sensor->get_path(), sensor));
   }
   void update() override;
 
@@ -73,7 +83,9 @@ class SignalK : public PollingComponent {
   std::string request_access_href_;
   std::string token_;
 
-  std::map<std::string, SignalkSubscriber *> sensors_;
+  // std::map<std::string, SignalkSubscriber *> sensors_;
+  std::vector<SignalkSubscriber *> sensors_;
+  std::set<std::string> topics_;
 
   SignalKPreferedAccessMethod prefered_access_method_{SignalKPreferedAccessMethod::REQUEST_ACCESS};
   SignalKRequestAccessState request_access_state_{SignalKRequestAccessState::UNKNOWN};
@@ -88,7 +100,8 @@ template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
   // Let value_ be either float or string
   TEMPLATABLE_VALUE(DeltaValue, value)
 
-  void play(Ts... x) override {
+  // void play(Ts... x) override {
+  void play(const Ts &... x) override {
     DeltaValue val;
     if (this->value_.has_value()) {
       val = this->value_.value(x...);  // YAML expression result
@@ -115,6 +128,42 @@ template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
   std::string path_;
   Unit unit_;
 };
+
+template<typename... Ts> class PutRequestAction : public Action<Ts...> {
+ public:
+  PutRequestAction(SignalK *parent) : parent_(parent) {}
+  // Let value_ be either float or string
+  TEMPLATABLE_VALUE(DeltaValue, value)
+
+  // void play(Ts... x) override {
+  void play(const Ts &... x) override {
+    DeltaValue val;
+    if (this->value_.has_value()) {
+      val = this->value_.value(x...);  // YAML expression result
+    } else {
+      val = std::get<0>(std::tuple<Ts...>(x...));  // forward raw x
+    }
+
+    // Dispatch based on type
+    if (std::holds_alternative<float>(val)) {
+      this->parent_->put_request(this->path_, convert_to_base(std::get<float>(val), unit_));
+    } else if (std::holds_alternative<bool>(val)){
+      this->parent_->put_request(this->path_, std::get<bool>(val));
+    } 
+    else if (std::holds_alternative<std::string>(val)) {
+      this->parent_->put_request(this->path_, std::get<std::string>(val));
+    }
+  }
+
+  void set_path(std::string path) { path_ = path; }
+  void set_unit(Unit unit) { this->unit_ = unit; }
+
+ protected:
+  SignalK *parent_;
+  std::string path_;
+  Unit unit_;
+};
+
 
 }  // namespace signalk
 }  // namespace esphome

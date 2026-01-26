@@ -1,3 +1,4 @@
+import json
 import esphome.codegen as cg
 from esphome.components import switch
 import esphome.config_validation as cv
@@ -64,6 +65,10 @@ async def to_code(config):
                 for item in value:
                     cg.add(vec.push_back(cg.std_string(item)))
                 cg.add(var.add_metadata(key, vec))
+            elif isinstance(value, dict):
+                json_str = json.dumps(value)
+                cg.add(var.add_metadata_from_json(key, cg.std_string(json_str)))
+
             else:
                 raise cv.Invalid(f"Unsupported metadata type for '{key}': {value}")
 

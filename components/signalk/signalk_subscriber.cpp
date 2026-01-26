@@ -22,22 +22,22 @@ namespace signalk
 
     void SignalkSubscriber::add_metadata(const std::string &key, const std::string &value)
     {
-        this->metadata_.add_metadata(key, value);
+        this->metadata_.set(key, value);
     }
 
     void SignalkSubscriber::add_metadata(const std::string &key, double value)
     {
-        this->metadata_.add_metadata(key, value);
+        this->metadata_.set(key, value);
     }
 
     void SignalkSubscriber::add_metadata(const std::string &key, bool value)
     {
-        this->metadata_.add_metadata(key, value);
+        this->metadata_.set(key, value);
     }
 
     void SignalkSubscriber::add_metadata(const std::string &key, const std::vector<std::string> &value)
     {
-        this->metadata_.add_metadata(key, value);
+        this->metadata_.set_array(key, value);
     }
 
     void SignalkSubscriber::to_json(JsonVariant meta) const 

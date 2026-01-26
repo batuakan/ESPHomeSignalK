@@ -188,8 +188,9 @@ HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg
 }
 
 HttpResponse SignalKEspIdf::get(const std::string &path) {
-  char responseBuffer[512] = {0};
+  char responseBuffer[1024] = {0};
   std::string url = "http://" + host_ + ":" + std::to_string(port_) + path;
+  ESP_LOGW(TAG, "Connecting to %s", url.c_str());
   esp_http_client_config_t config = {
       .url = url.c_str(),
       .method = HTTP_METHOD_GET,
@@ -197,15 +198,19 @@ HttpResponse SignalKEspIdf::get(const std::string &path) {
       .event_handler = _http_event_handler,
       .user_data = responseBuffer,
   };
-
+  
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (token_.empty()) {
     ESP_LOGW(TAG, "No authorization token provided");
   } else {
-    auth_header_ = "Bearer " + token_ + "\r\n";
+    auth_header_ = "Bearer " + token_;
+    ESP_LOGW(TAG, "Auth header: %s", auth_header_.c_str());
     esp_http_client_set_header(client, "Authorization", auth_header_.c_str());
   }
   esp_err_t err = esp_http_client_perform(client);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "HTTP GET failed: %s", esp_err_to_name(err));
+  }
 
   HttpResponse resp;
   resp.status_code = esp_http_client_get_status_code(client);

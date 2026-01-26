@@ -7,7 +7,7 @@ substitutions:
   screen_width_px: '480'
 
 esphome:
-  name: sksdldisplay
+  name: sdl
   friendly_name: SignalK SDL Display
 
 display:
@@ -22,6 +22,14 @@ touchscreen:
   - platform: sdl
     id: my_touchscreen
     display: my_display
+
+# number:
+#   - platform: signalk
+#     id: steering_autopilot_target
+#     path: steering.autopilot.target 
+#     units: degrees
+
+
 
 sensor:
   - platform: signalk
@@ -40,8 +48,25 @@ sensor:
             format: "SOG %4.1f"
             args: [ 'x' ]
 
+
 lvgl:
   widgets:
     - label:
         id: sog_label
         align: CENTER
+    - label:
+        id: sog_label1
+        align: CENTER
+        y: 50
+
+    - button:
+        width: 100
+        height: 100
+        bg_color: 0xc70814
+        widgets:
+          - label:
+              text: "WIND"
+        on_press:
+          - signalk.put_request:
+              path: steering.autopilot.state
+              value: "wind"

@@ -19,6 +19,7 @@ CODEOWNERS = ["@batuakan"]
 
 CONF_HOST = "host"
 CONF_UNIT = "unit"
+CONF_META = 'meta'
 CONF_SIGNALK_PATH = "signalk_path"
 
 
@@ -116,6 +117,12 @@ PublishDeltaActionBool = PublishDeltaAction.template(cg.bool_)
 
 PublishDeltaActionString = PublishDeltaAction.template(cg.std_string)
 
+PutRequestAction = signalk_ns.class_("PutRequestAction")
+PutRequestFloat = PutRequestAction.template(cg.float_)
+PutRequestBool = PutRequestAction.template(cg.bool_)
+
+PutRequestString = PutRequestAction.template(cg.std_string)
+
 # Schema for zones array
 SIGNALK_ZONE_SCHEMA = cv.Schema(
     {
@@ -144,6 +151,7 @@ SIGNALK_META_SCHEMA = cv.Schema(
         cv.Optional("description"): cv.string,
         cv.Optional("units"): cv.string,  # could restrict to known units if desired
         cv.Optional("timeout"): cv.positive_float,
+        cv.Optional("supportPut"): cv.boolean,
         cv.Optional("displayScale"): SIGNALK_DISPLAY_SCALE_SCHEMA,
         cv.Optional("alertMethod"): cv.ensure_list(cv.string),
         cv.Optional("warnMethod"): cv.ensure_list(cv.string),
@@ -168,16 +176,49 @@ CONFIG_SCHEMA = cv.Schema(
 PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
     {
         cv.GenerateID(): cv.use_id(signalk),
-        cv.Optional(CONF_VALUE): cv.templatable(cv.float_),
+        cv.Optional(CONF_VALUE): cv.templatable(cv.Any(
+                cv.float_,
+                cv.string,
+                cv.boolean,
+            )),
         cv.Required(CONF_PATH): cv.string,
         cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
     }
 )
 
+PUT_REQUEST_SCHEMA = automation.maybe_simple_id(
+    {
+        cv.GenerateID(): cv.use_id(signalk),
+        cv.Optional(CONF_VALUE): cv.templatable(cv.Any(
+                cv.float_,
+                cv.string,
+                cv.boolean,
+            )),
+        cv.Required(CONF_PATH): cv.string,
+        cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
+    }
+)
+
+@automation.register_action(
+    "signalk.put_request", PutRequestAction, PUT_REQUEST_SCHEMA
+)
+
+async def put_request_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, parent)
+    # cg.add(var.set_value(config[CONF_VALUE]))
+    cg.add(var.set_path(config[CONF_PATH]))
+    if CONF_UNIT in config:
+        cg.add(var.set_unit(config[CONF_UNIT]))
+    if CONF_VALUE in config:
+        templ = await cg.templatable(config[CONF_VALUE], args, cg.float_)
+        cg.add(var.set_value(templ))
+    return var
 
 @automation.register_action(
     "signalk.publish_delta", PublishDeltaAction, PUBLISH_DELTA_SCHEMA
 )
+
 async def publish_delta_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
@@ -218,6 +259,11 @@ async def to_code(config):
         cg.add_build_flag("-L/usr/local/lib")
         cg.add_build_flag("-lixwebsocket")
         cg.add_build_flag("-lz")
+        cg.add_build_flag("-lssl")
+        cg.add_build_flag("-lcrypto")
+        
+        
+        
         cg.add_platformio_option("build_type", "debug")
 
 

@@ -13,7 +13,7 @@ class SignalkTextSensor : public SignalKSubscriberTemplated<std::string>, public
   void setup() override;
   void dump_config() override;
 
-  void set_value(std::string value) override;
+  // void set_value(std::string value) override;
   void update() override;
 };
 
