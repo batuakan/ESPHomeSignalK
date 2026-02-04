@@ -267,11 +267,6 @@ async def to_code(config):
         cg.add_platformio_option("build_type", "debug")
 
 
-# PLATFORMIO_OPTIONS = {
-#     "build_flags": ["-I/usr/local/include", "-L/usr/local/lib", "-lixwebsocket"]
-# }
-
-
 FILTER_SOURCE_FILES = filter_source_files_from_platform(
     {
         "signalk_client_arduino_esp32.cpp": {PlatformFramework.ESP32_ARDUINO},

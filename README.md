@@ -190,7 +190,7 @@ text_sensor:
 ```
 ### Publishing deltas
 
-In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celsius they will be converted to fahrenheit while being sent to the server.
+In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string, boolean and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celsius they will be converted to fahrenheit while being sent to the server.
 
 
 ```yaml
@@ -206,6 +206,24 @@ sensor:
     - signalk.publish_delta:
         path: "environment.temperature"
         unit: "celsius"
+```
+
+
+### PUT Requests
+
+In order make PUT requests to the server use the **signalk.put_request** action. 
+put_request action supports string, boolean and floating values. Below is an example of sending a PUT request to the autopilot to adjust course 10 degrees to port.
+
+```yaml
+- button:
+
+    widgets:
+      - label:
+          text: "-10"
+    on_press:
+      - signalk.put_request:
+          path: steering.autopilot.actions.adjustHeading
+          value: -10
 ```
 
 ## Contributing

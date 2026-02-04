@@ -274,7 +274,7 @@ void SignalK::load_token() {
 }
 
 void SignalK::on_message(const std::string &msg) {
-  ESP_LOGD(TAG, "Received message: %s", msg.c_str());
+  //ESP_LOGD(TAG, "Received message: %s", msg.c_str());
   JsonDocument doc;
   deserializeJson(doc, msg);
   // Check if this is a delta message
