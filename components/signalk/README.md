@@ -6,7 +6,7 @@ Welcome to my feature branch for signalk component
 # TODO
 
 1. Fix hard coded library dependency for WiFiClientSecure, HTTPCLient
-1. Proper yaml validation for esphome conf file, currently esphome home allows any string/number for the signalk sensor entries.
+1. DONE Proper yaml validation for esphome conf file, currently esphome home allows any string/number for the signalk sensor entries.
     1. numbers should adhere to min/max criteria
     2. strings should be validated where applicable
     3. signalk paths should be validated

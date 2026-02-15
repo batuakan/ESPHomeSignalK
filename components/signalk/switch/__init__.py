@@ -3,7 +3,15 @@ import esphome.codegen as cg
 from esphome.components import switch
 import esphome.config_validation as cv
 from esphome.const import CONF_PATH, DEVICE_CLASS_SWITCH
-from .. import signalk, signalk_ns, SIGNALK_META_SCHEMA
+from .. import (
+    SIGNALK_FORMAT,
+    SIGNALK_META_SCHEMA,
+    SIGNALK_PERIOD,
+    SIGNALK_POLICY,
+    signalk,
+    signalk_ns,
+    validate_signalk_path,
+)
 
 CONF_PERIOD = "period"
 CONF_FORMAT = "format"
@@ -23,11 +31,11 @@ CONFIG_SCHEMA = (
     .extend(
         {
             cv.GenerateID(CONF_SIGNALK_PARENT_ID): cv.use_id(signalk),
-            cv.Required(CONF_PATH): cv.string,
-            cv.Optional(CONF_PERIOD, default=1000): cv.int_,
-            cv.Optional(CONF_FORMAT, default="delta"): cv.string,
-            cv.Optional(CONF_POLICY, default="instant"): cv.string,
-            cv.Optional(CONF_MIN_PERIOD, default=200): cv.int_,
+            cv.Required(CONF_PATH): validate_signalk_path,
+            cv.Optional(CONF_PERIOD, default=1000): SIGNALK_PERIOD,
+            cv.Optional(CONF_FORMAT, default="delta"): SIGNALK_FORMAT,
+            cv.Optional(CONF_POLICY, default="instant"): SIGNALK_POLICY,
+            cv.Optional(CONF_MIN_PERIOD, default=200): SIGNALK_PERIOD,
 
             cv.Optional("meta"): SIGNALK_META_SCHEMA,
         }

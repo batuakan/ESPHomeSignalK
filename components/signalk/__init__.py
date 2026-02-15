@@ -1,3 +1,4 @@
+import re
 from esphome import automation
 import esphome.codegen as cg
 from esphome.config_helpers import filter_source_files_from_platform
@@ -21,6 +22,20 @@ CONF_HOST = "host"
 CONF_UNIT = "unit"
 CONF_META = 'meta'
 CONF_SIGNALK_PATH = "signalk_path"
+
+SIGNALK_PATH_REGEX = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
+
+def validate_signalk_path(value):
+    value = cv.string(value)
+    if not SIGNALK_PATH_REGEX.match(value):
+        raise cv.Invalid(
+            "Invalid SignalK path. Use dot-separated segments with A-Za-z0-9_ only."
+        )
+    return value
+
+SIGNALK_PERIOD = cv.int_range(min=0, max=86400000)
+SIGNALK_FORMAT = cv.one_of("delta", "full", lower=True)
+SIGNALK_POLICY = cv.one_of("instant", "ideal", "fixed", lower=True)
 
 
 signalk_ns = cg.esphome_ns.namespace("signalk")
@@ -181,7 +196,7 @@ PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
                 cv.string,
                 cv.boolean,
             )),
-        cv.Required(CONF_PATH): cv.string,
+        cv.Required(CONF_PATH): validate_signalk_path,
         cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
     }
 )
@@ -194,7 +209,7 @@ PUT_REQUEST_SCHEMA = automation.maybe_simple_id(
                 cv.string,
                 cv.boolean,
             )),
-        cv.Required(CONF_PATH): cv.string,
+        cv.Required(CONF_PATH): validate_signalk_path,
         cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
     }
 )
