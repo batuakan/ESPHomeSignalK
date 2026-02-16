@@ -101,10 +101,10 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 bool SignalKEspIdf::connect(const std::string &path) {
   ESP_LOGD(TAG, "Connect");
   esp_websocket_client_config_t websocket_cfg = {
-      .host = host_.c_str(),
-      .port = port_,
-      .path = path.c_str(),
-      // .headers = ... // Not available in IDF 4.x, see below
+    .host = host_.c_str(),
+    .port = port_,
+    .path = path.c_str(),
+    // .headers = ... // Not available in IDF 4.x, see below
   };
 
   // Set Authorization header if token is present

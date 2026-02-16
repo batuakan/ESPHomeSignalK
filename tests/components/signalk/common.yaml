@@ -20,6 +20,12 @@ esphome:
           path: "steering.autopilot.actions.adjustHeading"
           value: -10
 
+external_components:
+  - source:
+      type: local
+      path: ../../../components
+    components: [signalk]
+
 wifi:
   ssid: ${wifi_ssid}
   password: ${wifi_password}
