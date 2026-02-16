@@ -1,0 +1,12 @@
+substitutions:
+  name: signalk-esp32-c3-idf
+  friendly_name: "SignalK ESP32-C3 IDF"
+  wifi_ssid: "test_ssid"
+  wifi_password: "test_password"
+
+<<: !include common.yaml
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf

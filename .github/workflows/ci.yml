@@ -40,6 +40,10 @@ jobs:
           - examples/esp32.yaml
           - examples/digitalswitch.yaml
           - examples/SDL.yaml
+          - tests/components/signalk/test.esp32-ard.yaml
+          - tests/components/signalk/test.esp32-idf.yaml
+          - tests/components/signalk/test.esp32-c3-ard.yaml
+          - tests/components/signalk/test.esp32-c3-idf.yaml
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -19,7 +19,12 @@ fi
 "$VENV_RUFF" format --check "$ROOT_DIR/components" "$ROOT_DIR/tools"
 "$VENV_RUFF" check "$ROOT_DIR/components" "$ROOT_DIR/tools"
 
-"$VENV_YAMLLINT" -c "$ROOT_DIR/.yamllint" "$ROOT_DIR/examples" "$ROOT_DIR/components" "$ROOT_DIR/.github"
+YAML_DIRS=("$ROOT_DIR/examples" "$ROOT_DIR/components" "$ROOT_DIR/.github")
+if [ -d "$ROOT_DIR/tests" ]; then
+  YAML_DIRS+=("$ROOT_DIR/tests")
+fi
+
+"$VENV_YAMLLINT" -c "$ROOT_DIR/.yamllint" "${YAML_DIRS[@]}"
 
 if ! command -v clang-format >/dev/null 2>&1; then
   echo "clang-format not found. Please install clang-format." >&2
