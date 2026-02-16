@@ -40,6 +40,12 @@ sensor:
 Connecting to the server can be achieved with the following configuration. If username and password is present the client will connect to the server using username and password, Otherwise connection and access validation will be performed through access request process.
 
 ```yaml
+# Fetch ESPKHomeSignalK component from github
+external_components:
+  - source: github://batuakan/ESPHomeSignalK@main
+    components: [ signalk ]
+
+# Setup SK instance
 signalk:
   host: 10.10.10.1 # Ip address for your server
   port: 3000 # Optional Port for signalk, defaults 3000
@@ -47,13 +53,17 @@ signalk:
   password: "yourpassword" #optional
 ```
 
-### Fetching data 
+### ESPHome SignalK Components
 
-Signalk component provides two types sensors to fetch data from the signalk server: 
+Signalk component provides the following types "core" components to send/fetch data to/from the signalk server:
+
 1. **text_sensor** to fetch text/json based information 
 2. **sensor** to access numerical data. 
+3. **number** to send numerical data
+4. **text** to send text data
+5. **switch** creates a signalk switch
 
-Each sensor must declare an id and signalk path, other optional values are:
+Each component must declare an id and signalk path, other optional values are:
 - id: id of the sensor
 - name: unique name to identify the sensor
 - path: signalk path to subscribe to
@@ -61,8 +71,10 @@ Each sensor must declare an id and signalk path, other optional values are:
 - format: Defaults to delta
 - policy: Defaults to instant
 - minperiod: Defaults to 200
-- unit: Defines which unot the data should be converted to, default to none (No conversion). 
-  Note that this compoennt doesn't know the units of the incoming value so technically it ispoosible to convert between unmatching values, therefore it is the developers responsiblity to check the unit of the incoming value and apply the correct unit conversion.
+- unit: Defines which unit the data should be converted to, default to none (No conversion).
+  
+Note that this compoennt doesn't know the units of the incoming value so technically it is possible to convert between unmatching values, therefore it is the developers responsiblity to check the unit of the incoming value and apply the correct unit conversion.
+
   Possible values are:
 
   `No conversion`
@@ -151,20 +163,9 @@ Each sensor must declare an id and signalk path, other optional values are:
   cubic_meters,
   gallons
 
+
+#### Sensor Component
 ```yaml
-external_components:
-  - source: github://batuakan/ESPHomeSignalK@main
-    components: [ signalk ]
-
-signalk:
-  host: 10.10.10.1 # Ip address for your 
-  port: 3000 # Optional Port for signalk, defaults 3000
-
-# text sensor for text based data
-text_sensor:
-  - platform: signalk
-    id: name
-    path: name
 
 # sensor for numerical data
 sensor:
@@ -172,6 +173,18 @@ sensor:
     id: environment_wind_angleApparent
     path: environment.wind.angleApparent
     unit: knots
+
+```
+#### Text Sensor Component
+
+Text sensor provides read only access to text and json based data from the SignalK server. Use text_sensor to read data that is emitted by other sources
+
+```yaml
+# text sensor for text based data
+text_sensor:
+  - platform: signalk
+    id: name
+    path: name
 
 # use text_sensor to fetch json data and parse with the json component to extract information from it
 text_sensor:
@@ -188,6 +201,94 @@ text_sensor:
                 return true;
             });
 ```
+#### Number Component
+
+Numeric component to read/write numeric values to SignalK with meta data support.
+
+Note: This is bit of a hack as the number component is designed in ESPHome to hold a numeric value like setting, but we can abuse that and use this component to send numeric values to SignalK using the number.set method.
+
+```yaml
+
+number: 
+  platform: signalk
+  id: test
+  path: test.value
+  min: 0
+  max: 5000
+  step: 1
+  unit: "rotations_per_minute"
+  meta:
+    # Add your meta data here
+
+# ---
+#read the value from e.g. a sensor and forward it to signalk
+on_value:
+  - number.set:
+      id: test
+      value: !lambda "return x;"
+```
+
+#### Text Component
+
+Similar to the number component, text is used to send/receive string data from the sinanlk server using the text.set method.
+
+```yaml
+
+text:
+  - platform: signalk
+    id: forecast_state
+    path: environment.forecast.state
+    mode: text
+    meta:
+      # Add your meta data here
+
+# ---
+#read the value from e.g. a sensor and forward it to signalk
+on_value:
+  - text.set:
+      id: forecast_state
+      value: !lambda "return x;"
+
+```
+
+### Meta Data
+
+Switch, number and text components support [meta data](https://signalk.org/specification/1.7.0/doc/data_model_metadata.html), which will be passed on to the signalk server up on reconnection. Replicating the example on SK specification page, you get a meta data definition shown as below.
+
+```yaml
+
+  meta:
+    displayName: "Port Tachometer"
+    longName: "Engine 2 Tachometer"
+    shortName: "Tacho"
+    description: "Engine revolutions (x60 for RPM)"
+    units: "Hz"
+    timeout: 1
+    displayScale: 
+      lower: 0
+      upper: 75
+      type: linear
+    alertMethod: ["visual"]
+    warnMethod: ["visual"]
+    alarmMethod: ["sound", "visual"]
+    emergencyMethod: ["sound", "visual"]
+    zones:
+      - upper: 4
+        state: alarm
+        message: "Stopped or very slow"
+      - lower: 4
+        upper: 60
+        state: normal
+      - lower: 60
+        upper: 65
+        state: warn
+        message: "Approaching maximum"
+      - lower: 65
+        state: alarm
+        message: "Exceeding maximum"
+
+```
+
 ### Publishing deltas
 
 In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string, boolean and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celsius they will be converted to fahrenheit while being sent to the server.

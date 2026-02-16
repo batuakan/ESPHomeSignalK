@@ -40,6 +40,11 @@ namespace signalk
         this->metadata_.set_array(key, value);
     }
 
+    void SignalkSubscriber::add_metadata_from_json(const std::string &key, const std::string &json)
+    {
+        this->metadata_.set_json(key, json);
+    }
+
     void SignalkSubscriber::to_json(JsonVariant meta) const 
     {
         this->metadata_.to_json(meta);

@@ -23,6 +23,7 @@ class SignalkSubscriber {
   void add_metadata(const std::string &key, double value);
   void add_metadata(const std::string &key, bool value);
   void add_metadata(const std::string &key, const std::vector<std::string> &value);
+  void add_metadata_from_json(const std::string &key, const std::string &json);
   void to_json(JsonVariant meta) const;
 
   void set_path(std::string path);
@@ -51,7 +52,7 @@ class SignalkSubscriber {
   SignalK *parent_;
 
   bool requires_update_;
-  bool requires_metadata_update_;
+  bool requires_metadata_update_{true};
   SignalKMetadata metadata_;
 
  

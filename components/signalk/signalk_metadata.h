@@ -31,6 +31,19 @@ class SignalKMetadata {
     for (auto &v : values) arr.add(v);
   }
 
+  void set_json(const std::string &key, const std::string &json)
+  {
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, json);
+    if (error)
+    {
+        // Handle error (e.g., log it)
+        return;
+    }
+    JsonVariant value = doc.as<JsonVariant>();
+    doc_[key.c_str()] = value;
+  }
+
   /// Get nested object, creating if not exist
   JsonObject ensure_object(const std::string &key) {
     return doc_[key.c_str()].to<JsonObject>();

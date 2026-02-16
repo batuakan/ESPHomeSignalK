@@ -1,4 +1,5 @@
 import re
+import json
 from esphome import automation
 import esphome.codegen as cg
 from esphome.config_helpers import filter_source_files_from_platform
@@ -247,6 +248,32 @@ async def publish_delta_to_code(config, action_id, template_arg, args):
     return var
 
 
+async def signalk_meta(config, var):
+    print("Processing metadata for", var, "with config:", config)
+    meta = config.get("meta", {})
+    if meta:
+        for key, value in meta.items():
+            # bool
+            if isinstance(value, bool):
+                cg.add(var.add_metadata(key, value))
+
+            # number (converted to C++ double)
+            elif isinstance(value, (int, float)):
+                cg.add(var.add_metadata(key, float(value)))
+
+            # string
+            elif isinstance(value, str):
+                cg.add(var.add_metadata(key, cg.std_string(value)))
+
+            elif isinstance(value, (list, dict)):
+                json_str = json.dumps(value)
+                cg.add(var.add_metadata_from_json(key, cg.std_string(json_str)))
+     
+
+            else:
+                raise cv.Invalid(f"Unsupported metadata type for '{key}': {value}")
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -255,6 +282,7 @@ async def to_code(config):
     cg.add(var.set_device_name(config[CONF_NAME]))
     cg.add(var.set_user_name(config[CONF_USERNAME]))
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
+    # signalk_meta(config, var)
 
     cg.add(var.set_setup_priority(100))
     cg.add_library("bblanchon/ArduinoJson", "7.4.2")
