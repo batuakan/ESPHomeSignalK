@@ -8,7 +8,9 @@
 namespace esphome {
 namespace signalk {
 
-class SignalkTextSensor : public SignalKSubscriberTemplated<std::string>, public text_sensor::TextSensor, public Component {
+class SignalkTextSensor : public SignalKSubscriberTemplated<std::string>,
+                          public text_sensor::TextSensor,
+                          public Component {
  public:
   void setup() override;
   void dump_config() override;

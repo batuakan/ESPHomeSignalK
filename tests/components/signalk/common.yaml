@@ -1,0 +1,69 @@
+substitutions:
+  name: signalk-test
+  friendly_name: "SignalK Test"
+  wifi_ssid: "test_ssid"
+  wifi_password: "test_password"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: -100
+    then:
+      - signalk.publish_delta:
+          id: signalk_main
+          path: "environment.temperature"
+          value: 21.5
+          unit: "celsius"
+      - signalk.put_request:
+          id: signalk_main
+          path: "steering.autopilot.actions.adjustHeading"
+          value: -10
+
+external_components:
+  - source:
+      type: local
+      path: ../../../components
+    components: [signalk]
+
+wifi:
+  ssid: ${wifi_ssid}
+  password: ${wifi_password}
+
+logger:
+
+api:
+
+signalk:
+  id: signalk_main
+  host: "127.0.0.1"
+  port: 3000
+
+sensor:
+  - platform: signalk
+    id: environment_wind_speed_app
+    path: environment.wind.speedApparent
+    unit: "knots"
+
+text_sensor:
+  - platform: signalk
+    id: navigation_position
+    path: navigation.position
+
+switch:
+  - platform: signalk
+    id: cabin_lights
+    path: electrical.switches.test.state
+
+number:
+  - platform: signalk
+    id: steering_target
+    path: steering.autopilot.target
+    min: 0
+    max: 360
+
+text:
+  - platform: signalk
+    id: nav_state
+    path: navigation.state
+    mode: text

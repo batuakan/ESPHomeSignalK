@@ -5,7 +5,6 @@
 
 #include "signalk_metadata.h"
 
-
 namespace esphome {
 namespace signalk {
 
@@ -54,27 +53,18 @@ class SignalkSubscriber {
   bool requires_update_;
   bool requires_metadata_update_{true};
   SignalKMetadata metadata_;
-
- 
 };
 
-template<typename T>
-class SignalKSubscriberTemplated : public SignalkSubscriber {
+template<typename T> class SignalKSubscriberTemplated : public SignalkSubscriber {
  public:
-  
-  inline void set_value(JsonVariant &value) override
-  {
-      this->requires_update_ = true;
-      this->value_ = value.as<T>();
+  inline void set_value(JsonVariant &value) override {
+    this->requires_update_ = true;
+    this->value_ = value.as<T>();
   }
   // void set_value(T &value);
-  
 
  protected:
   T value_;
-
-
-
 };
 
 }  // namespace signalk

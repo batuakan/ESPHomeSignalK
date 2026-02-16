@@ -28,10 +28,8 @@ esphome:
 # number:
 #   - platform: signalk
 #     id: steering_autopilot_target
-#     path: steering.autopilot.target 
+#     path: steering.autopilot.target
 #     units: degrees
-
-
 
 sensor:
   - platform: signalk
@@ -44,7 +42,6 @@ sensor:
           format: "SOG %.1f"
           args: ['x']
           level: DEBUG
-#
 # lvgl:
 #   widgets:
 #     - label:

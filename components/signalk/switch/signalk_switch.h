@@ -6,8 +6,6 @@
 
 #include "esphome/components/signalk/signalk_subscriber.h"
 
-
-
 namespace esphome {
 namespace signalk {
 
@@ -17,6 +15,7 @@ class SignalkSwitch : public SignalKSubscriberTemplated<bool>, public switch_::S
   void dump_config() override;
 
   void update() override;
+
  protected:
   void write_state(bool state) override;
 };

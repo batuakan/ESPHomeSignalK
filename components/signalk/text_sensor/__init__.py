@@ -3,14 +3,7 @@ from esphome.components import text_sensor
 import esphome.config_validation as cv
 from esphome.const import CONF_PATH
 
-from .. import (
-    SIGNALK_FORMAT,
-    SIGNALK_PERIOD,
-    SIGNALK_POLICY,
-    signalk,
-    signalk_ns,
-    validate_signalk_path,
-)
+from .. import SIGNALK_FORMAT, SIGNALK_PERIOD, SIGNALK_POLICY, signalk, signalk_ns, validate_signalk_path
 
 CONF_PERIOD = "period"
 CONF_FORMAT = "format"
@@ -18,9 +11,7 @@ CONF_POLICY = "policy"
 CONF_MIN_PERIOD = "minperiod"
 CONF_SIGNALK_PARENT_ID = "SignalK"
 
-SignalkTextSensor = signalk_ns.class_(
-    "SignalkTextSensor", text_sensor.TextSensor, cg.Component
-)
+SignalkTextSensor = signalk_ns.class_("SignalkTextSensor", text_sensor.TextSensor, cg.Component)
 
 CONFIG_SCHEMA = (
     text_sensor.text_sensor_schema(

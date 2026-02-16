@@ -3,7 +3,6 @@
 
 namespace esphome {
 namespace signalk {
-  
 
 float convert_from_base(float value, Unit targetUnit) {
   switch (targetUnit) {

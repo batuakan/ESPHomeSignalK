@@ -2,6 +2,7 @@
 
 #include "signalk_x86.h"
 #include "esphome/core/log.h"
+#include <cstdio>
 #include <fstream>
 #include <ixwebsocket/IXHttpClient.h>
 
@@ -12,7 +13,9 @@ static const char *const TAG = "signalk";
 
 bool SignalKx86::connect(const std::string &path) {
   ESP_LOGD(TAG, "Connect (ix::WebSocket)");
-  std::string url = "ws://" + host_ + ":" + std::to_string(port_) + path;
+  char port_buf[6];
+  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
+  std::string url = "ws://" + host_ + ":" + port_buf + path;
   websocket_client_.setUrl(url);
 
   // Set Authorization header if token is present
@@ -62,7 +65,9 @@ HttpResponse SignalKx86::post(const std::string &path, const std::string &msg) {
   // This is a stub implementation using ix::WebSocket for x86 (not ESP-IDF).
   // ix::WebSocket does not support HTTP POST, so we use ix::HttpClient for HTTP requests.
   ix::HttpClient http_client;
-  std::string url = "http://" + host_ + ":" + std::to_string(port_) + path;
+  char port_buf[6];
+  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
+  std::string url = "http://" + host_ + ":" + port_buf + path;
 
   ix::HttpRequestArgsPtr args = http_client.createRequest();
 
@@ -85,7 +90,9 @@ HttpResponse SignalKx86::post(const std::string &path, const std::string &msg) {
 
 HttpResponse SignalKx86::get(const std::string &path) {
   ix::HttpClient http_client;
-  std::string url = "http://" + host_ + ":" + std::to_string(port_) + path;
+  char port_buf[6];
+  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
+  std::string url = "http://" + host_ + ":" + port_buf + path;
   ix::HttpRequestArgsPtr args = http_client.createRequest();
   // Custom headers can be set
   ix::WebSocketHttpHeaders headers;

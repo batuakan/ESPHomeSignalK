@@ -22,7 +22,7 @@ switch:
     on_turn_on:
       - logger.log: "Switch turned ON from SignalK"
       - output.turn_on: relay1
-      
+
     on_turn_off:
       - logger.log: "Switch turned OFF from SignalK"
       - output.turn_off: relay1

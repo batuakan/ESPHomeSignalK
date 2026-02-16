@@ -1,9 +1,9 @@
-import json
 import esphome.codegen as cg
 from esphome.components import text
 import esphome.config_validation as cv
 from esphome.const import CONF_PATH
-from .. import signalk, signalk_ns, SIGNALK_META_SCHEMA, signalk_meta, CONF_UNIT, UNIT
+
+from .. import SIGNALK_META_SCHEMA, signalk, signalk_meta, signalk_ns
 
 CONF_MIN = "min"
 CONF_MAX = "max"
@@ -25,14 +25,12 @@ CONFIG_SCHEMA = (
     .extend(
         {
             cv.GenerateID(CONF_SIGNALK_PARENT_ID): cv.use_id(signalk),
-
             cv.Required(CONF_PATH): cv.string,
             cv.Optional(CONF_STEP, default=1.0): cv.float_,
             cv.Optional(CONF_PERIOD, default=1000): cv.int_,
             cv.Optional(CONF_FORMAT, default="delta"): cv.string,
             cv.Optional(CONF_POLICY, default="instant"): cv.string,
             cv.Optional(CONF_MIN_PERIOD, default=200): cv.int_,
-
             cv.Optional("meta"): SIGNALK_META_SCHEMA,
         }
     )

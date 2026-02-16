@@ -1,9 +1,9 @@
-import json
 import esphome.codegen as cg
 from esphome.components import number
 import esphome.config_validation as cv
 from esphome.const import CONF_PATH
-from .. import signalk, signalk_ns, SIGNALK_META_SCHEMA, signalk_meta, CONF_UNIT, UNIT
+
+from .. import CONF_UNIT, SIGNALK_META_SCHEMA, UNIT, signalk, signalk_meta, signalk_ns
 
 CONF_MIN = "min"
 CONF_MAX = "max"
@@ -34,7 +34,6 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_POLICY, default="instant"): cv.string,
             cv.Optional(CONF_MIN_PERIOD, default=200): cv.int_,
             cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
-
             cv.Optional("meta"): SIGNALK_META_SCHEMA,
         }
     )
@@ -46,9 +45,7 @@ async def to_code(config):
     min_value = config[CONF_MIN]
     max_value = config[CONF_MAX]
     step = config[CONF_STEP]
-    var = await number.new_number(config,min_value=min_value,
-            max_value=max_value,
-            step=step)
+    var = await number.new_number(config, min_value=min_value, max_value=max_value, step=step)
     await cg.register_component(var, config)
     cg.add(var.set_path(config[CONF_PATH]))
     cg.add(var.set_period(config[CONF_PERIOD]))

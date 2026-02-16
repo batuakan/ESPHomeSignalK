@@ -11,7 +11,7 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [ signalk ]
+    components: [signalk]
 
 wifi:
   ssid: !secret wifi_ssid
@@ -58,4 +58,4 @@ text_sensor:
                 }
                 return true;
             });
-            
+
