@@ -15,7 +15,6 @@
 namespace esphome {
 namespace signalk {
 
-
 enum class SignalKPreferedAccessMethod { LOGIN = 0, REQUEST_ACCESS = 1 };
 
 enum class SignalKLoginState { UNKNOWN = 0, COMPLETED = 1, DENIED = 2 };
@@ -56,8 +55,7 @@ class SignalK : public PollingComponent {
   void subscribe(SignalkSubscriber *sensor) {
     // Accessing elements using find()
     auto it = topics_.find(sensor->get_path());
-    if (it == topics_.end())
-    {
+    if (it == topics_.end()) {
       topics_.insert(sensor->get_path());
     }
     sensors_.push_back(sensor);
@@ -101,7 +99,7 @@ template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
   TEMPLATABLE_VALUE(DeltaValue, value)
 
   // void play(Ts... x) override {
-  void play(const Ts &... x) override {
+  void play(const Ts &...x) override {
     DeltaValue val;
     if (this->value_.has_value()) {
       val = this->value_.value(x...);  // YAML expression result
@@ -112,10 +110,9 @@ template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
     // Dispatch based on type
     if (std::holds_alternative<float>(val)) {
       this->parent_->publish_delta(this->path_, convert_to_base(std::get<float>(val), unit_));
-    } else if (std::holds_alternative<bool>(val)){
+    } else if (std::holds_alternative<bool>(val)) {
       this->parent_->publish_delta(this->path_, std::get<bool>(val));
-    } 
-    else if (std::holds_alternative<std::string>(val)) {
+    } else if (std::holds_alternative<std::string>(val)) {
       this->parent_->publish_delta(this->path_, std::get<std::string>(val));
     }
   }
@@ -136,7 +133,7 @@ template<typename... Ts> class PutRequestAction : public Action<Ts...> {
   TEMPLATABLE_VALUE(DeltaValue, value)
 
   // void play(Ts... x) override {
-  void play(const Ts &... x) override {
+  void play(const Ts &...x) override {
     DeltaValue val;
     if (this->value_.has_value()) {
       val = this->value_.value(x...);  // YAML expression result
@@ -147,10 +144,9 @@ template<typename... Ts> class PutRequestAction : public Action<Ts...> {
     // Dispatch based on type
     if (std::holds_alternative<float>(val)) {
       this->parent_->put_request(this->path_, convert_to_base(std::get<float>(val), unit_));
-    } else if (std::holds_alternative<bool>(val)){
+    } else if (std::holds_alternative<bool>(val)) {
       this->parent_->put_request(this->path_, std::get<bool>(val));
-    } 
-    else if (std::holds_alternative<std::string>(val)) {
+    } else if (std::holds_alternative<std::string>(val)) {
       this->parent_->put_request(this->path_, std::get<std::string>(val));
     }
   }
@@ -163,7 +159,6 @@ template<typename... Ts> class PutRequestAction : public Action<Ts...> {
   std::string path_;
   Unit unit_;
 };
-
 
 }  // namespace signalk
 }  // namespace esphome

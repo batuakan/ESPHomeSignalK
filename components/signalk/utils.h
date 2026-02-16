@@ -6,11 +6,11 @@
 #include <sys/time.h>
 #include <string>
 
-inline bool match_path(const std::string& path, const std::string& pattern) {
-    if (pattern.back() == '*') {
-        return path.rfind(pattern.substr(0, pattern.size() - 1), 0) == 0;
-    }
-    return path == pattern;
+inline bool match_path(const std::string &path, const std::string &pattern) {
+  if (pattern.back() == '*') {
+    return path.rfind(pattern.substr(0, pattern.size() - 1), 0) == 0;
+  }
+  return path == pattern;
 }
 
 inline std::string generate_random_guid() {
@@ -101,7 +101,7 @@ inline std::string get_uuid() {
   }
   char uuid[37];
   snprintf(uuid, sizeof(uuid), "%08x-%04x-%04x-%04x-%012llx", (uint32_t) (mac >> 32), (uint16_t) (mac >> 16) & 0xFFFF,
-           (uint16_t) (mac) &0xFFFF,
+           (uint16_t) (mac) & 0xFFFF,
            0x0ba2,  // could be anything fixed
            (unsigned long long) mac);
   return std::string(uuid);
@@ -131,10 +131,34 @@ inline void set_time_from_iso8601(const std::string &iso_time) {
   struct tm tm = {};
   int milliseconds = 0;
 
-  // Parse "YYYY-MM-DDTHH:MM:SS.mmmZ"
-  if (sscanf(iso_time.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d.%3dZ", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour,
-             &tm.tm_min, &tm.tm_sec, &milliseconds) != 7) {
-    // ESP_LOGE(TAG, "Failed to parse time string: %s", iso_time.c_str());
+  const char *str = iso_time.c_str();
+  if (iso_time.size() < 24) {
+    return;
+  }
+
+  auto parse_digits = [](const char *input, size_t count, int *out) -> bool {
+    int value = 0;
+    for (size_t i = 0; i < count; ++i) {
+      char c = input[i];
+      if (c < '0' || c > '9') {
+        return false;
+      }
+      value = value * 10 + (c - '0');
+    }
+    *out = value;
+    return true;
+  };
+
+  // Parse fixed format: "YYYY-MM-DDTHH:MM:SS.mmmZ"
+  if (str[4] != '-' || str[7] != '-' || str[10] != 'T' || str[13] != ':' || str[16] != ':' || str[19] != '.' ||
+      str[23] != 'Z') {
+    return;
+  }
+
+  if (!parse_digits(str + 0, 4, &tm.tm_year) || !parse_digits(str + 5, 2, &tm.tm_mon) ||
+      !parse_digits(str + 8, 2, &tm.tm_mday) || !parse_digits(str + 11, 2, &tm.tm_hour) ||
+      !parse_digits(str + 14, 2, &tm.tm_min) || !parse_digits(str + 17, 2, &tm.tm_sec) ||
+      !parse_digits(str + 20, 3, &milliseconds)) {
     return;
   }
 

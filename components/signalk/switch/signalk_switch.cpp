@@ -5,12 +5,10 @@ namespace esphome {
 namespace signalk {
 static const char *const TAG = "signalk";
 
-void SignalkSwitch::setup() 
-{
+void SignalkSwitch::setup() {
   this->add_metadata("units", std::string("bool"));
   this->add_metadata("supportsPut", true);
   this->requires_update_ = true;
-  
 }
 
 void SignalkSwitch::dump_config() {}

@@ -7,8 +7,6 @@
 #include "esphome/components/signalk/signalk_subscriber.h"
 #include "esphome/components/signalk/unit_conversions.h"
 
-
-
 namespace esphome {
 namespace signalk {
 
@@ -17,9 +15,9 @@ class SignalkText : public SignalKSubscriberTemplated<std::string>, public text:
   void setup() override;
   void dump_config() override;
   void update() override;
+
  protected:
   void control(const std::string &value) override;
-
 };
 
 }  // namespace signalk

@@ -3,12 +3,11 @@
 host:
 
 external_components:
-- source:
-    type: local
-    path: ../components
-    # source: github://batuakan/ESPHomeSignalK@main
-
-  components: [ signalk ]
+  - source:
+      type: local
+      path: ../components
+      # source: github://batuakan/ESPHomeSignalK@main
+    components: [signalk]
 
 logger:
   level: DEBUG
@@ -18,5 +17,4 @@ json:
 api:
 
 signalk:
-  host: !secret signalk_host
-  # port: 3000 (Optional defaults to 3000)
+  host: !secret signalk_host  # port: 3000 (Optional defaults to 3000)

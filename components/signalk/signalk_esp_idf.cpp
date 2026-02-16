@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_http_client.h"
+#include <cstdio>
 
 #include "esphome/components/signalk/signalk_esp_idf.h"
 #include "esphome/core/log.h"
@@ -100,7 +101,9 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 bool SignalKEspIdf::connect(const std::string &path) {
   ESP_LOGD(TAG, "Connect");
   esp_websocket_client_config_t websocket_cfg = {
-      .host = host_.c_str(), .port = port_, .path = path.c_str(),
+      .host = host_.c_str(),
+      .port = port_,
+      .path = path.c_str(),
       // .headers = ... // Not available in IDF 4.x, see below
   };
 
@@ -156,7 +159,9 @@ bool SignalKEspIdf::send(const std::string &msg) {
 
 HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg) {
   char responseBuffer[512] = {0};
-  std::string url = "http://" + host_ + ":" + std::to_string(port_) + path;
+  char port_buf[6];
+  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
+  std::string url = "http://" + host_ + ":" + port_buf + path;
   esp_http_client_config_t config = {
       .url = url.c_str(),
       .method = HTTP_METHOD_POST,
@@ -189,7 +194,9 @@ HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg
 
 HttpResponse SignalKEspIdf::get(const std::string &path) {
   char responseBuffer[1024] = {0};
-  std::string url = "http://" + host_ + ":" + std::to_string(port_) + path;
+  char port_buf[6];
+  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
+  std::string url = "http://" + host_ + ":" + port_buf + path;
   ESP_LOGW(TAG, "Connecting to %s", url.c_str());
   esp_http_client_config_t config = {
       .url = url.c_str(),
@@ -198,7 +205,7 @@ HttpResponse SignalKEspIdf::get(const std::string &path) {
       .event_handler = _http_event_handler,
       .user_data = responseBuffer,
   };
-  
+
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (token_.empty()) {
     ESP_LOGW(TAG, "No authorization token provided");

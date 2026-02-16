@@ -5,12 +5,10 @@ namespace esphome {
 namespace signalk {
 static const char *const TAG = "signalk";
 
-void SignalkNumber::setup() 
-{
+void SignalkNumber::setup() {
   // this->add_metadata("units", std::string("bool"));
   // this->add_metadata("supportsPut", true);
   this->requires_update_ = true;
-  
 }
 
 void SignalkNumber::dump_config() {}
@@ -18,7 +16,6 @@ void SignalkNumber::dump_config() {}
 void SignalkNumber::update() {
   if (this->requires_update_) {
     this->requires_update_ = false;
-    
   }
 }
 

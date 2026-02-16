@@ -5,17 +5,13 @@ namespace esphome {
 namespace signalk {
 static const char *const TAG = "signalk";
 
-void SignalkText::setup() 
-{
-  this->requires_update_ = true;
-}
+void SignalkText::setup() { this->requires_update_ = true; }
 
 void SignalkText::dump_config() {}
 
 void SignalkText::update() {
   if (this->requires_update_) {
     this->requires_update_ = false;
-    
   }
 }
 

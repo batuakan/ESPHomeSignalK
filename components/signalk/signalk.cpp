@@ -1,6 +1,5 @@
 
 
-
 #include "esphome/core/preferences.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
@@ -17,7 +16,6 @@ static const char *const TAG = "signalk";
 
 void SignalK::setup() {
   ESP_LOGD(TAG, "Setup");
-  
 
   if (!this->user_name_.empty() && !this->user_password_.empty()) {
     prefered_access_method_ = SignalKPreferedAccessMethod::LOGIN;
@@ -50,13 +48,12 @@ void SignalK::update() {
     else if (this->login_state_ == SignalKLoginState::COMPLETED && !is_connected())
       this->connect("/signalk/v1/stream?subscribe=none");
   }
-  if (is_connected())
-  {
+  if (is_connected()) {
     for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
       (*it)->update();
       // if (it->second != NULL) {
       //   it->second->update();
-      // } 
+      // }
     }
   }
 }
@@ -274,7 +271,7 @@ void SignalK::load_token() {
 }
 
 void SignalK::on_message(const std::string &msg) {
-  //ESP_LOGD(TAG, "Received message: %s", msg.c_str());
+  // ESP_LOGD(TAG, "Received message: %s", msg.c_str());
   JsonDocument doc;
   deserializeJson(doc, msg);
   // Check if this is a delta message
@@ -299,28 +296,27 @@ void SignalK::on_receive_delta(JsonArray &arr) {
 
     // if (sensor == NULL)
     // {
-      for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-        if ((*it)->get_path() == path)
-        {
-          set_sensor_value(*it, delta["value"]);
-        }
+    for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+      if ((*it)->get_path() == path) {
+        set_sensor_value(*it, delta["value"]);
       }
-      //Exact key match was not found, lets try regexish matching
-      for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-        if (match_path(path, (*it)->get_path())) {
-            set_sensor_value(*it, delta["value"]);
-        }
+    }
+    // Exact key match was not found, lets try regexish matching
+    for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+      if (match_path(path, (*it)->get_path())) {
+        set_sensor_value(*it, delta["value"]);
       }
-      // for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-      //   if (std::regex_match(path, std::regex((*it)->get_path()))) {
-      //     set_sensor_value((*it), delta["value"]);
-      //   }
-      // }
-    
+    }
+    // for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
+    //   if (std::regex_match(path, std::regex((*it)->get_path()))) {
+    //     set_sensor_value((*it), delta["value"]);
+    //   }
+    // }
+
     // if (sensor != NULL)
     // {
     //   set_sensor_value(sensor, delta["value"]);
-    // }    
+    // }
   }
 }
 
@@ -387,8 +383,7 @@ void SignalK::publish_delta(const std::string &path, const std::variant<double, 
   send(output);
 }
 
-void SignalK::publish_meta_delta(SignalkSubscriber *subscriber)
-{
+void SignalK::publish_meta_delta(SignalkSubscriber *subscriber) {
   if (!is_connected()) {
     return;
   }
@@ -402,13 +397,11 @@ void SignalK::publish_meta_delta(SignalkSubscriber *subscriber)
   meta["path"] = subscriber->get_path();
   JsonObject value = meta["value"].to<JsonObject>();
   subscriber->to_json(value);
-  
 
   std::string output;
   serializeJson(doc, output);
   ESP_LOGD(TAG, "Publishing meta delta: %s", output.c_str());
   send(output);
-
 }
 
 }  // namespace signalk

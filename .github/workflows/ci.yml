@@ -6,6 +6,31 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create venv and install dev requirements
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements-dev.txt
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Run custom lint
+        run: bash tools/lint.sh
+
   esphome-config:
     runs-on: ubuntu-latest
     strategy:
@@ -24,14 +49,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install ESPHome
+      - name: Create venv and install ESPHome
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install esphome
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install esphome
 
       - name: Create secrets
         run: |
           printf "wifi_ssid: test\nwifi_password: test\nsignalk_host: 127.0.0.1\n" > examples/secrets.yaml
 
       - name: Validate config
-        run: esphome config ${{ matrix.config }}
+        run: .venv/bin/esphome config ${{ matrix.config }}

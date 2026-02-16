@@ -1,8 +1,10 @@
 import json
+
 import esphome.codegen as cg
 from esphome.components import switch
 import esphome.config_validation as cv
 from esphome.const import CONF_PATH, DEVICE_CLASS_SWITCH
+
 from .. import (
     SIGNALK_FORMAT,
     SIGNALK_META_SCHEMA,
@@ -36,7 +38,6 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_FORMAT, default="delta"): SIGNALK_FORMAT,
             cv.Optional(CONF_POLICY, default="instant"): SIGNALK_POLICY,
             cv.Optional(CONF_MIN_PERIOD, default=200): SIGNALK_PERIOD,
-
             cv.Optional("meta"): SIGNALK_META_SCHEMA,
         }
     )
@@ -60,7 +61,7 @@ async def to_code(config):
                 cg.add(var.add_metadata(key, value))
 
             # number (converted to C++ double)
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, int | float):
                 cg.add(var.add_metadata(key, float(value)))
 
             # string
