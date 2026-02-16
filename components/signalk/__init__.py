@@ -23,7 +23,7 @@ CONF_UNIT = "unit"
 CONF_META = 'meta'
 CONF_SIGNALK_PATH = "signalk_path"
 
-SIGNALK_PATH_REGEX = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
+SIGNALK_PATH_REGEX = re.compile(r"^[A-Za-z0-9_]+(.[A-Za-z0-9_]+)(..*)?$")
 
 def validate_signalk_path(value):
     value = cv.string(value)
