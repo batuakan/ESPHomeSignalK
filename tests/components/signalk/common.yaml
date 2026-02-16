@@ -66,3 +66,4 @@ text:
   - platform: signalk
     id: nav_state
     path: navigation.state
+    mode: text
