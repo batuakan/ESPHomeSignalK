@@ -7,9 +7,15 @@ esp32:
   framework:
     type: arduino
 
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ signalk ]
+
 wifi:
   ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  password: "changeme123"
 
 captive_portal:
 

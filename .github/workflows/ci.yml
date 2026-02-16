@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  esphome-config:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - examples/esp32.yaml
+          - examples/digitalswitch.yaml
+          - examples/SDL.yaml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install esphome
+
+      - name: Create secrets
+        run: |
+          printf "wifi_ssid: test\nwifi_password: test\nsignalk_host: 127.0.0.1\n" > examples/secrets.yaml
+
+      - name: Validate config
+        run: esphome config ${{ matrix.config }}
