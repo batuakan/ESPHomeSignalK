@@ -284,7 +284,6 @@ async def to_code(config):
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
     # signalk_meta(config, var)
 
-    cg.add(var.set_setup_priority(100))
     cg.add_library("bblanchon/ArduinoJson", "7.4.2")
     if CORE.is_esp32 and CORE.using_esp_idf:
         cg.add_library(
