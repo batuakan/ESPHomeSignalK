@@ -1,4 +1,4 @@
-#ifdef USE_ESP32
+#ifdef USE_ESP32_FRAMEWORK_ESP_IDF
 #pragma once
 #include <string>
 #include <cstdint>

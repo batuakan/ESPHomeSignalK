@@ -41,7 +41,7 @@ SIGNALK_POLICY = cv.one_of("instant", "ideal", "fixed", lower=True)
 
 
 signalk_ns = cg.esphome_ns.namespace("signalk")
-if CORE.is_esp32 and CORE.using_esp_idf:
+if CORE.is_esp32 and not CORE.using_arduino:
     signalk = signalk_ns.class_("SignalKEspIdf", cg.PollingComponent)
     DEPENDENCIES = ["wifi"]
 elif CORE.is_esp32 and CORE.using_arduino:
@@ -284,18 +284,20 @@ async def to_code(config):
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
     # signalk_meta(config, var)
 
-    cg.add_library("bblanchon/ArduinoJson", "7.4.3")
-    # if CORE.is_esp32 and CORE.using_esp_idf:
-    #     cg.add_library(
-    #         "esp_websocket_client",
-    #         None,
-    #         repository="https://components.espressif.com/api/downloads/?object_type=component&object_id=dbc87006-9a4b-45e6-a6ab-b286174cb413",
-    #     )
+    # cg.add_library("bblanchon/ArduinoJson", "7.4.3")
     if CORE.is_esp32:
-        cg.add_library("NetworkClientSecure", None)
-        cg.add_library("HTTPClient", None)
-        # cg.add_library("links2004/WebSockets", "2.6.1")
-        cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
+        if CORE.using_arduino:
+            cg.add_library("ESPmDNS", None)
+            cg.add_library("WiFi", None)
+            cg.add_library("NetworkClientSecure", None)
+            cg.add_library("HTTPClient", None)
+            cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
+        else:
+            cg.add_library(
+                "esp_websocket_client",
+                None,
+                repository="https://components.espressif.com/api/downloads/?object_type=component&object_id=dbc87006-9a4b-45e6-a6ab-b286174cb413",
+            )
     if CORE.is_host:
         cg.add_build_flag("-I/usr/local/include")
         cg.add_build_flag("-L/usr/local/lib")
