@@ -1,4 +1,4 @@
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
 #include "mdns.h"
 #include "esp_log.h"
 #include "esp_system.h"

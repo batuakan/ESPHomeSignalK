@@ -84,7 +84,7 @@ inline std::string get_uuid() {
 }
 #endif
 
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
 #include "esp_log.h"
 #include <esp_timer.h>
 #include <esp_system.h>
