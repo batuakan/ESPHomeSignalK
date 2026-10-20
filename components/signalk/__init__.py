@@ -15,7 +15,9 @@ from esphome.const import (
     CONF_VALUE,
     PlatformFramework,
 )
+# from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE
+from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 
 CODEOWNERS = ["@batuakan"]
 # DEPENDENCIES = ["wifi"]
@@ -221,7 +223,7 @@ PUT_REQUEST_SCHEMA = automation.maybe_simple_id(
 )
 
 
-@automation.register_action("signalk.put_request", PutRequestAction, PUT_REQUEST_SCHEMA)
+@automation.register_action("signalk.put_request", PutRequestAction, PUT_REQUEST_SCHEMA, synchronous=False)
 async def put_request_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
@@ -235,7 +237,7 @@ async def put_request_to_code(config, action_id, template_arg, args):
     return var
 
 
-@automation.register_action("signalk.publish_delta", PublishDeltaAction, PUBLISH_DELTA_SCHEMA)
+@automation.register_action("signalk.publish_delta", PublishDeltaAction, PUBLISH_DELTA_SCHEMA, synchronous=False)
 async def publish_delta_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
@@ -292,11 +294,11 @@ async def to_code(config):
             cg.add_library("NetworkClientSecure", None)
             cg.add_library("HTTPClient", None)
             cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
-        else:
-            cg.add_library(
-                "esp_websocket_client",
-                None,
-                repository="https://components.espressif.com/api/downloads/?object_type=component&object_id=dbc87006-9a4b-45e6-a6ab-b286174cb413",
+        elif not CORE.using_arduino:
+            include_builtin_idf_component("esp_http_client")
+            add_idf_component(
+                name="espressif/esp_websocket_client",
+                ref="1.8.0",
             )
     if CORE.is_host:
         cg.add_build_flag("-I/usr/local/include")

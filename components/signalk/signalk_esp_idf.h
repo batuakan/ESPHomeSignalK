@@ -10,7 +10,7 @@
 namespace esphome {
 namespace signalk {
 
-static esp_err_t _http_event_handler(esp_http_client_event_t *evt);
+esp_err_t _http_event_handler(esp_http_client_event_t *evt);
 
 class SignalKEspIdf : public SignalK {
   friend esp_err_t _http_event_handler(esp_http_client_event_t *evt);
