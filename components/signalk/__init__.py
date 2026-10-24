@@ -142,6 +142,24 @@ PutRequestBool = PutRequestAction.template(cg.bool_)
 
 PutRequestString = PutRequestAction.template(cg.std_string)
 
+# std::variant<float, std::string, bool>, see signalk.h
+DeltaValue = signalk_ns.struct("DeltaValue")
+
+
+def delta_value_constant(value):
+    """Emit a constant that selects the intended DeltaValue alternative unambiguously."""
+    if isinstance(value, bool):
+        return cg.RawExpression("true" if value else "false")
+    if isinstance(value, str):
+        return cg.RawExpression(f"std::string({cg.safe_exp(value)})")
+    return cg.RawExpression(f"{float(value)!r}f")
+
+
+async def delta_value_templatable(value, args):
+    if cg.is_template(value):
+        return await cg.templatable(value, args, cg.float_)
+    return await cg.templatable(value, args, DeltaValue, to_exp=delta_value_constant)
+
 # Schema for zones array
 SIGNALK_ZONE_SCHEMA = cv.Schema(
     {
@@ -232,7 +250,7 @@ async def put_request_to_code(config, action_id, template_arg, args):
     if CONF_UNIT in config:
         cg.add(var.set_unit(config[CONF_UNIT]))
     if CONF_VALUE in config:
-        templ = await cg.templatable(config[CONF_VALUE], args, cg.float_)
+        templ = await delta_value_templatable(config[CONF_VALUE], args)
         cg.add(var.set_value(templ))
     return var
 
@@ -246,7 +264,7 @@ async def publish_delta_to_code(config, action_id, template_arg, args):
     if CONF_UNIT in config:
         cg.add(var.set_unit(config[CONF_UNIT]))
     if CONF_VALUE in config:
-        templ = await cg.templatable(config[CONF_VALUE], args, cg.float_)
+        templ = await delta_value_templatable(config[CONF_VALUE], args)
         cg.add(var.set_value(templ))
     return var
 
