@@ -123,6 +123,10 @@ void SignalK::loop() {
   for (auto &msg : batch) {
     this->on_message(msg);
   }
+  // Publish new values of YAML-declared sensors right away (they only flag changes).
+  for (auto *sensor : sensors_) {
+    sensor->update();
+  }
 
   if (stream_connected_ && subscriptions_.pending() != SubscriptionSet::Action::NONE &&
       sk_millis() - subscriptions_changed_at_ >= SUBSCRIPTION_DEBOUNCE_MS) {
@@ -206,14 +210,6 @@ void SignalK::update() {
       this->login();
     else if (this->login_state_ == SignalKLoginState::COMPLETED && !is_connected())
       this->connect("/signalk/v1/stream?subscribe=none");
-  }
-  if (is_connected()) {
-    for (auto it = sensors_.begin(); it != sensors_.end(); ++it) {
-      (*it)->update();
-      // if (it->second != NULL) {
-      //   it->second->update();
-      // }
-    }
   }
 }
 

@@ -207,7 +207,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_USERNAME, default=""): cv.string,
         cv.Optional(CONF_PASSWORD, default=""): cv.string,
     }
-)
+    # The access/connection state machine runs in update(). Without an interval ESPHome
+    # (2026.x) never calls update() on a PollingComponent, so default to 1s.
+).extend(cv.polling_component_schema("1s"))
 
 
 PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
