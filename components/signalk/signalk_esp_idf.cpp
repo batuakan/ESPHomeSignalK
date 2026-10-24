@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_http_client.h"
+#include <algorithm>
 #include <cstdio>
 
 #include "esphome/components/signalk/signalk_esp_idf.h"
@@ -13,88 +14,67 @@ namespace signalk {
 
 static const char *const TAG = "signalk";
 
+// Largest text message reassembled from chunks; bigger ones are dropped with a warning.
+static const size_t MAX_MESSAGE_BYTES = 32 * 1024;
+// Largest HTTP response body kept by get()/post() (access requests, login, validation).
+static const size_t MAX_HTTP_RESPONSE_BYTES = 4096;
+
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-  auto self = static_cast<SignalKEspIdf *>(handler_args);
-  esp_websocket_event_data_t *data = (esp_websocket_event_data_t *) event_data;
+  static_cast<SignalKEspIdf *>(handler_args)
+      ->handle_websocket_event(event_id, static_cast<esp_websocket_event_data_t *>(event_data));
+}
+
+void SignalKEspIdf::handle_websocket_event(int32_t event_id, esp_websocket_event_data_t *data) {
   switch (event_id) {
     case WEBSOCKET_EVENT_CONNECTED:
-      ESP_LOGD(__FILENAME__, "WEBSOCKET_EVENT_CONNECTED");
-      self->on_connected();
+      this->signal_connected();
       break;
     case WEBSOCKET_EVENT_DISCONNECTED:
-      ESP_LOGD(__FILENAME__, "WEBSOCKET_EVENT_DISCONNECTED");
-      self->on_disconnected();
+      this->signal_disconnected();
       break;
-    case WEBSOCKET_EVENT_DATA:
-      // check if the payload is text)
-      if (data->op_code == 0x01) {
-        self->on_message(std::string(data->data_ptr, data->data_len));
+    case WEBSOCKET_EVENT_DATA: {
+      // A message larger than the client buffer arrives as several events with the same
+      // payload_len and increasing payload_offset; the first carries the text op code.
+      if (data->payload_offset == 0) {
+        this->frame_.clear();
+        this->frame_text_ = data->op_code == 0x01;
+        this->frame_overflow_ = data->payload_len > (int) MAX_MESSAGE_BYTES;
+      }
+      if (!this->frame_text_)
+        break;
+      if (!this->frame_overflow_)
+        this->frame_.append(data->data_ptr, data->data_len);
+      if (data->payload_offset + data->data_len >= data->payload_len) {
+        if (this->frame_overflow_) {
+          ESP_LOGW(TAG, "Dropping %d byte message (limit %u)", data->payload_len, (unsigned) MAX_MESSAGE_BYTES);
+        } else {
+          this->enqueue_message(std::move(this->frame_));
+        }
+        this->frame_.clear();
+        this->frame_text_ = false;
       }
       break;
+    }
     case WEBSOCKET_EVENT_ERROR:
-      // ws_client->on_error();
       break;
   }
 }
 
-// Optional callback for streaming/chunked response
+/// Response accumulator for esp_http_client, bounded to MAX_HTTP_RESPONSE_BYTES.
+struct ResponseBuffer {
+  std::string body;
+  bool truncated{false};
+};
+
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
-  static char *output_buffer;  // Buffer to store response of http request from event handler
-  static int output_len;       // Stores number of bytes read
-
-  switch (evt->event_id) {
-    case HTTP_EVENT_ON_DATA:
-      // ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-      /*
-       *  Check for chunked encoding is added as the URL for chunked encoding used in this example returns binary data.
-       *  However, event handler can also be used in case chunked encoding is used.
-       */
-      if (!esp_http_client_is_chunked_response(evt->client)) {
-        // If user_data buffer is configured, copy the response into the buffer
-        if (evt->user_data) {
-          memcpy((char *) evt->user_data + output_len, evt->data, evt->data_len);
-        } else {
-          if (output_buffer == NULL) {
-            output_buffer = (char *) malloc(esp_http_client_get_content_length(evt->client));
-            output_len = 0;
-            if (output_buffer == NULL) {
-              ESP_LOGE(TAG, "Failed to allocate memory for output buffer");
-              return ESP_FAIL;
-            }
-          }
-          memcpy(output_buffer + output_len, evt->data, evt->data_len);
-        }
-        output_len += evt->data_len;
-      }
-
-      break;
-    case HTTP_EVENT_ON_FINISH:
-      // ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
-      if (output_buffer != NULL) {
-        // Response is accumulated in output_buffer. Uncomment the below line to print the accumulated response
-        // ESP_LOG_BUFFER_HEX(TAG, output_buffer, output_len);
-        free(output_buffer);
-        output_buffer = NULL;
-      }
-      output_len = 0;
-      break;
-    case HTTP_EVENT_DISCONNECTED:
-      // ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
-      // int mbedtls_err = 0;
-      // esp_err_t err = esp_tls_get_and_clear_last_error(evt->data, &mbedtls_err, NULL);
-      // if (err != 0) {
-      //   ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
-      //   ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
-      // }
-      if (output_buffer != NULL) {
-        free(output_buffer);
-        output_buffer = NULL;
-      }
-      output_len = 0;
-      break;
-    default:
-      break;
-  }
+  if (evt->event_id != HTTP_EVENT_ON_DATA || evt->user_data == nullptr)
+    return ESP_OK;
+  auto *buf = static_cast<ResponseBuffer *>(evt->user_data);
+  size_t room = MAX_HTTP_RESPONSE_BYTES - std::min(buf->body.size(), MAX_HTTP_RESPONSE_BYTES);
+  size_t take = std::min(room, (size_t) evt->data_len);
+  buf->body.append(static_cast<const char *>(evt->data), take);
+  if (take < (size_t) evt->data_len)
+    buf->truncated = true;
   return ESP_OK;
 }
 
@@ -157,7 +137,7 @@ bool SignalKEspIdf::send(const std::string &msg) {
 }
 
 HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg) {
-  char responseBuffer[512] = {0};
+  ResponseBuffer responseBuffer;
   char port_buf[6];
   snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
   std::string url = "http://" + host_ + ":" + port_buf + path;
@@ -166,7 +146,7 @@ HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg
       .method = HTTP_METHOD_POST,
       .timeout_ms = 2000,  // important!
       .event_handler = _http_event_handler,
-      .user_data = responseBuffer,
+      .user_data = &responseBuffer,
 
   };
 
@@ -187,22 +167,24 @@ HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg
   // ESP_LOGI(TAG, "POST Status = %d, content_length = %d", status, this->content_length);
   // ESP_LOGI(TAG, "POST Response = %s", responseBuffer);
   esp_http_client_cleanup(client);
-  resp.body = std::string(responseBuffer);
+  if (responseBuffer.truncated)
+    ESP_LOGW(TAG, "HTTP response for %s truncated to %u bytes", path.c_str(), (unsigned) MAX_HTTP_RESPONSE_BYTES);
+  resp.body = std::move(responseBuffer.body);
   return resp;
 }
 
 HttpResponse SignalKEspIdf::get(const std::string &path) {
-  char responseBuffer[1024] = {0};
+  ResponseBuffer responseBuffer;
   char port_buf[6];
   snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
   std::string url = "http://" + host_ + ":" + port_buf + path;
-  ESP_LOGW(TAG, "Connecting to %s", url.c_str());
+  ESP_LOGD(TAG, "GET %s", url.c_str());
   esp_http_client_config_t config = {
       .url = url.c_str(),
       .method = HTTP_METHOD_GET,
       .timeout_ms = 2000,  // important!
       .event_handler = _http_event_handler,
-      .user_data = responseBuffer,
+      .user_data = &responseBuffer,
   };
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -210,7 +192,6 @@ HttpResponse SignalKEspIdf::get(const std::string &path) {
     ESP_LOGW(TAG, "No authorization token provided");
   } else {
     auth_header_ = "Bearer " + token_;
-    ESP_LOGW(TAG, "Auth header: %s", auth_header_.c_str());
     esp_http_client_set_header(client, "Authorization", auth_header_.c_str());
   }
   esp_err_t err = esp_http_client_perform(client);
@@ -225,7 +206,9 @@ HttpResponse SignalKEspIdf::get(const std::string &path) {
   // ESP_LOGD(TAG, "GET Status = %d, content_length = %d", status, this->content_length);
   // ESP_LOGD(TAG, "GET Response = %s", responseBuffer);
   esp_http_client_cleanup(client);
-  resp.body = std::string(responseBuffer);
+  if (responseBuffer.truncated)
+    ESP_LOGW(TAG, "HTTP response for %s truncated to %u bytes", path.c_str(), (unsigned) MAX_HTTP_RESPONSE_BYTES);
+  resp.body = std::move(responseBuffer.body);
   return resp;
 }
 
