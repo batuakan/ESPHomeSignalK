@@ -171,8 +171,13 @@ template<typename... Ts> class PublishDeltaAction : public Action<Ts...> {
     DeltaValue val;
     if (this->value_.has_value()) {
       val = this->value_.value(x...);  // YAML expression result
-    } else {
+    } else if constexpr (sizeof...(Ts) > 0) {
       val = std::get<0>(std::tuple<Ts...>(x...));  // forward raw x
+    } else {
+      // No trigger argument to forward (e.g. on_boot): without a value there is nothing to send.
+      ESP_LOGW("signalk", "No value to send to %s: set 'value:' or use this action where the trigger has a value",
+               this->path_.c_str());
+      return;
     }
 
     // Dispatch based on type
@@ -205,8 +210,13 @@ template<typename... Ts> class PutRequestAction : public Action<Ts...> {
     DeltaValue val;
     if (this->value_.has_value()) {
       val = this->value_.value(x...);  // YAML expression result
-    } else {
+    } else if constexpr (sizeof...(Ts) > 0) {
       val = std::get<0>(std::tuple<Ts...>(x...));  // forward raw x
+    } else {
+      // No trigger argument to forward (e.g. on_boot): without a value there is nothing to send.
+      ESP_LOGW("signalk", "No value to send to %s: set 'value:' or use this action where the trigger has a value",
+               this->path_.c_str());
+      return;
     }
 
     // Dispatch based on type
