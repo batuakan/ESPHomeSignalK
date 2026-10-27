@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "signalk.h"
+#include "signalk_mdns_host.h"
 
 #include <ixwebsocket/IXWebSocket.h>
 
@@ -16,7 +17,7 @@ class SignalKx86 : public SignalK {
   ~SignalKx86() {}
 
   bool connect(const std::string &path) override;
-  bool discovery() override;
+  DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) override;
   bool send(const std::string &msg) override;
 
   void save_token() override;
@@ -32,6 +33,7 @@ class SignalKx86 : public SignalK {
   HttpResponse post(const std::string &path, const std::string &msg) override;
 
  private:
+  SignalKMdnsHost mdns_;
   bool isconnected_;
   ix::WebSocket websocket_client_;
   // uint32_t content_length = 0;

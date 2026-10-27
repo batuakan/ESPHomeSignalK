@@ -52,7 +52,7 @@ bool SignalKx86::connect(const std::string &path) {
   ;
 }
 
-bool SignalKx86::discovery() { return true; }
+DiscoveryPoll SignalKx86::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
 
 bool SignalKx86::send(const std::string &msg) {
   if (websocket_client_.getReadyState() != ix::ReadyState::Open) {

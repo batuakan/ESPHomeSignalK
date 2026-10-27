@@ -20,6 +20,10 @@ static const size_t INBOX_MAX_MESSAGES = 64;
 static const size_t INBOX_MAX_BYTES = 128 * 1024;
 // Subscription changes are batched for this long before being sent.
 static const uint32_t SUBSCRIPTION_DEBOUNCE_MS = 200;
+// A discovered server that disconnected is looked up again for this long before the last known address is used.
+static const uint32_t REDISCOVERY_TIMEOUT_MS = 10000;
+// While nothing is found the search is repeated every second; it is only logged this often.
+static const uint32_t DISCOVERY_LOG_EVERY_POLLS = 30;
 // Wait this long before asking the server for metadata again after a failed request.
 static const uint32_t METADATA_RETRY_MS = 10000;
 
@@ -201,7 +205,50 @@ void SignalK::setup() {
   }
 }
 
+bool SignalK::resolve_server() {
+  if (!host_.empty() && !rediscovering_)
+    return true;
+  if (rediscovering_ && sk_millis() - rediscovery_started_at_ >= REDISCOVERY_TIMEOUT_MS) {
+    ESP_LOGW(TAG, "SignalK server not found again, using the last known address %s:%u", host_.c_str(), port_);
+    rediscovering_ = false;
+    return true;
+  }
+
+  std::vector<ServerCandidate> found;
+  if (poll_discovery(found) == DiscoveryPoll::PENDING)
+    return false;
+
+  if (rediscovering_) {
+    // Only come back to the server we had: credentials and the access token must not go to a different
+    // server that just happens to be on the network.
+    found.erase(std::remove_if(found.begin(), found.end(),
+                               [this](const ServerCandidate &c) { return !same_server(c, discovered_server_); }),
+                found.end());
+  }
+  const ServerCandidate *server = pick_server(found);
+  if (server == nullptr) {
+    if (discovery_polls_without_result_++ % DISCOVERY_LOG_EVERY_POLLS == 0)
+      ESP_LOGW(TAG, "No SignalK server found with mDNS, still looking (set 'host' to skip the search)");
+    return false;
+  }
+  if (found.size() > 1) {
+    ESP_LOGW(TAG, "Found %u SignalK servers with mDNS, using %s:%u (set 'host' to choose another)",
+             (unsigned) found.size(), server->connect_host().c_str(), server->port);
+  } else {
+    ESP_LOGI(TAG, "Found SignalK server %s:%u with mDNS", server->connect_host().c_str(), server->port);
+  }
+  host_ = server->connect_host();
+  port_ = server->port;
+  discovered_server_ = *server;
+  host_discovered_ = true;
+  rediscovering_ = false;
+  discovery_polls_without_result_ = 0;
+  return true;
+}
+
 void SignalK::update() {
+  if (!this->resolve_server())
+    return;
   if (prefered_access_method_ == SignalKPreferedAccessMethod::REQUEST_ACCESS) {
     if (this->request_access_state_ == SignalKRequestAccessState::HASTOKEN)
       this->validate_token();
@@ -231,6 +278,12 @@ void SignalK::on_connected() {
 
 void SignalK::on_disconnected() {
   ESP_LOGW(TAG, "Disconnected from SignalK server");
+  // The server may have a new address. The transport reports every failed reconnect as a disconnect, so
+  // the window only starts with the first one.
+  if (host_discovered_ && !rediscovering_) {
+    rediscovering_ = true;
+    rediscovery_started_at_ = sk_millis();
+  }
   login_state_ = SignalKLoginState::UNKNOWN;
   if (!token_.empty())
     request_access_state_ = SignalKRequestAccessState::HASTOKEN;

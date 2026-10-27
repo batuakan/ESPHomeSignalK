@@ -21,8 +21,14 @@ from esphome.const import (
 from esphome.core import CORE, ID
 
 CODEOWNERS = ["@batuakan"]
-# ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
-AUTO_LOAD = ["json"]
+
+
+def AUTO_LOAD():
+    # ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
+    # On ESP32 the server is looked up with the mDNS client that ESPHome's mdns component starts.
+    return ["json", "mdns"] if CORE.is_esp32 else ["json"]
+
+
 # DEPENDENCIES = ["wifi"]
 
 CONF_HOST = "host"
@@ -375,7 +381,6 @@ async def to_code(config):
 
     if CORE.is_esp32:
         if CORE.using_arduino:
-            cg.add_library("ESPmDNS", None)
             cg.add_library("WiFi", None)
             cg.add_library("NetworkClientSecure", None)
             cg.add_library("HTTPClient", None)
@@ -401,6 +406,8 @@ FILTER_SOURCE_FILES = filter_source_files_from_platform(
     {
         "signalk_client_arduino_esp32.cpp": {PlatformFramework.ESP32_ARDUINO},
         "signalk_esp_idf.cpp": {PlatformFramework.ESP32_IDF},
+        "signalk_mdns_esp32.cpp": {PlatformFramework.ESP32_ARDUINO, PlatformFramework.ESP32_IDF},
+        "signalk_mdns_host.cpp": {PlatformFramework.HOST_NATIVE},
         "signalk_x86.cpp": {PlatformFramework.HOST_NATIVE},
     }
 )

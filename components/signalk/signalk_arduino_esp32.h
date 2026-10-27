@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "signalk.h"
+#include "signalk_mdns_esp32.h"
 #include <ArduinoWebsockets.h>
 
 namespace esphome {
@@ -14,7 +15,7 @@ class SignalKArduino : public SignalK {
   SignalKArduino() {}
   ~SignalKArduino();
   bool connect(const std::string &path) override;
-  bool discovery() override;
+  DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) override;
   bool send(const std::string &msg) override;
   bool is_connected() const override { return isconnected_; }
 
@@ -22,6 +23,7 @@ class SignalKArduino : public SignalK {
   HttpResponse post(const std::string &path, const std::string &msg) override;
 
  private:
+  SignalKMdnsEsp32 mdns_;
   websockets::WebsocketsClient webSocketClient_;
   bool isconnected_ = false;
   std::string auth_header_;
