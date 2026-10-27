@@ -18,10 +18,6 @@ void SignalkText::update() {
 void SignalkText::control(const std::string &state) {
   this->publish_state(state);
   this->parent_->publish_delta(this->path_, state);
-  if (this->requires_metadata_update_) {
-    this->requires_metadata_update_ = false;
-    this->parent_->publish_meta_delta(this);
-  }
 }
 
 }  // namespace signalk

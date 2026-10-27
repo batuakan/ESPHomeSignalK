@@ -44,21 +44,42 @@ sensor:
     id: environment_wind_speed_app
     path: environment.wind.speedApparent
     unit: "knots"
+    meta:
+      displayName: "Apparent wind"
+      timeout: 2
+      displayScale:
+        lower: 0
+        upper: 40
+        type: linear
+      alarmMethod: [sound, visual]
+      zones:
+        - upper: 25
+          state: normal
+        - lower: 25
+          state: alarm
+          message: "Too windy"
 
 text_sensor:
   - platform: signalk
     id: navigation_position
     path: navigation.position
+    meta:
+      description: "Vessel position"
 
 switch:
   - platform: signalk
     id: cabin_lights
     path: electrical.switches.test.state
+    meta:
+      shortName: "Cabin"
 
 number:
   - platform: signalk
     id: steering_target
     path: steering.autopilot.target
+    unit: "degrees"
+    meta:
+      description: "Autopilot target heading"
     min: 0
     max: 360
 
@@ -66,4 +87,6 @@ text:
   - platform: signalk
     id: nav_state
     path: navigation.state
+    meta:
+      longName: "Navigation state"
     mode: text

@@ -9,6 +9,24 @@
 #include <ArduinoJson.h>
 #endif
 #include <string>
+#include <vector>
+
+/// Copies into `out` the entries of `ours` that `server` does not have.
+/// Server values always win: a key the server has is never copied, even if the values differ.
+/// Objects are compared key by key, everything else (scalars, arrays such as `zones`) is atomic.
+inline void signalk_metadata_missing(JsonObjectConst ours, JsonObjectConst server, JsonObject out) {
+  for (JsonPairConst kv : ours) {
+    JsonVariantConst theirs = server[kv.key()];
+    if (theirs.isNull()) {
+      out[kv.key()] = kv.value();
+    } else if (kv.value().is<JsonObjectConst>() && theirs.is<JsonObjectConst>()) {
+      JsonObject nested = out[kv.key()].to<JsonObject>();
+      signalk_metadata_missing(kv.value().as<JsonObjectConst>(), theirs.as<JsonObjectConst>(), nested);
+      if (nested.size() == 0)
+        out.remove(kv.key());
+    }
+  }
+}
 
 class SignalKMetadata {
  public:
@@ -21,6 +39,8 @@ class SignalKMetadata {
 
   /// Returns a const JsonVariant for output
   JsonVariantConst view() const { return doc_.as<JsonVariantConst>(); }
+
+  bool empty() const { return doc_.as<JsonObjectConst>().size() == 0; }
 
   /// Add/overwrite a simple value
   template<typename T> void set(const std::string &key, const T &value) { doc_[key.c_str()] = value; }
@@ -48,6 +68,12 @@ class SignalKMetadata {
 
   /// Copy metadata into outgoing JSON root/variant
   void to_json(JsonVariant dst) const { dst.set(doc_.as<JsonVariantConst>()); }
+
+  /// Writes into `out` what the server lacks (see signalk_metadata_missing); `out` is left empty
+  /// when the server already has every key.
+  void missing_from(JsonVariantConst server, JsonObject out) const {
+    signalk_metadata_missing(doc_.as<JsonObjectConst>(), server.as<JsonObjectConst>(), out);
+  }
 
  private:
   JsonDocument doc_;

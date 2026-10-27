@@ -3,6 +3,7 @@
 #include "esphome/core/preferences.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#include <algorithm>
 #include <regex>
 // #include "esphome/components/wifi/wifi_component.h"
 
@@ -19,6 +20,8 @@ static const size_t INBOX_MAX_MESSAGES = 64;
 static const size_t INBOX_MAX_BYTES = 128 * 1024;
 // Subscription changes are batched for this long before being sent.
 static const uint32_t SUBSCRIPTION_DEBOUNCE_MS = 200;
+// Wait this long before asking the server for metadata again after a failed request.
+static const uint32_t METADATA_RETRY_MS = 10000;
 
 /// Logs only the first characters of a secret.
 static std::string redact(const std::string &secret) {
@@ -132,6 +135,9 @@ void SignalK::loop() {
       sk_millis() - subscriptions_changed_at_ >= SUBSCRIPTION_DEBOUNCE_MS) {
     this->sync_subscriptions();
   }
+  if (stream_connected_ && sk_millis() >= metadata_next_attempt_at_) {
+    this->sync_metadata();
+  }
 }
 
 static std::string subscribe_message(const std::vector<SubscriptionRow> &rows) {
@@ -219,6 +225,7 @@ void SignalK::on_connected() {
   // A fresh connection has no subscriptions: send the full set now (no debounce).
   ESP_LOGI(TAG, "Connected to SignalK stream");
   subscriptions_.mark_disconnected();
+  metadata_next_attempt_at_ = 0;
   this->sync_subscriptions();
 }
 
@@ -544,9 +551,9 @@ void SignalK::publish_delta(const std::string &path, const std::variant<double, 
   send(output);
 }
 
-void SignalK::publish_meta_delta(SignalkSubscriber *subscriber) {
+bool SignalK::publish_meta_delta(const std::string &path, JsonVariantConst meta) {
   if (!is_connected()) {
-    return;
+    return false;
   }
   JsonDocument doc;
   JsonArray updates = doc["updates"].to<JsonArray>();
@@ -554,15 +561,66 @@ void SignalK::publish_meta_delta(SignalkSubscriber *subscriber) {
   JsonObject update = updates.add<JsonObject>();
 
   JsonArray metas = update["meta"].to<JsonArray>();
-  JsonObject meta = metas.add<JsonObject>();
-  meta["path"] = subscriber->get_path();
-  JsonObject value = meta["value"].to<JsonObject>();
-  subscriber->to_json(value);
+  JsonObject entry = metas.add<JsonObject>();
+  entry["path"] = path;
+  entry["value"] = meta;
 
   std::string output;
   serializeJson(doc, output);
   ESP_LOGD(TAG, "Publishing meta delta: %s", output.c_str());
-  send(output);
+  return send(output);
+}
+
+// Metadata on the server can be newer than what is compiled into the device (it may have been edited
+// there), so the device only fills in what the server lacks and never overwrites a server value.
+// The stream cannot tell us what the server has: with sendMeta it only delivers metadata together with
+// a value, and writable paths often have none yet. So ask over HTTP, one subscriber per call.
+void SignalK::sync_metadata() {
+  for (auto *subscriber : sensors_) {
+    if (!subscriber->needs_metadata_sync())
+      continue;
+    if (!subscriber->has_metadata() || subscriber->get_path().find('*') != std::string::npos) {
+      subscriber->set_metadata_synced();  // nothing to send, or a wildcard has no single metadata
+      continue;
+    }
+    if (!this->sync_metadata_of(subscriber)) {
+      metadata_next_attempt_at_ = sk_millis() + METADATA_RETRY_MS;
+    }
+    return;
+  }
+}
+
+bool SignalK::sync_metadata_of(SignalkSubscriber *subscriber) {
+  const std::string path = subscriber->get_path();
+  std::string url_path = path;
+  std::replace(url_path.begin(), url_path.end(), '.', '/');
+
+  auto response = get("/signalk/v1/api/vessels/self/" + url_path + "/meta");
+  JsonDocument server_meta;  // stays null when the server has no metadata for the path
+  if (response.status_code == 200) {
+    DeserializationError error = deserializeJson(server_meta, response.body);
+    if (error || !server_meta.is<JsonObject>()) {
+      ESP_LOGW(TAG, "Unreadable metadata for %s from server, retrying later", path.c_str());
+      return false;
+    }
+  } else if (response.status_code != 404) {
+    ESP_LOGW(TAG, "Could not read metadata for %s: HTTP %d, retrying later", path.c_str(), response.status_code);
+    return false;
+  }
+
+  JsonDocument missing;
+  JsonObject missing_obj = missing.to<JsonObject>();
+  subscriber->metadata_missing_from(server_meta.as<JsonVariantConst>(), missing_obj);
+  if (missing_obj.size() == 0) {
+    ESP_LOGD(TAG, "Server already has all metadata for %s", path.c_str());
+    subscriber->set_metadata_synced();
+    return true;
+  }
+  if (!this->publish_meta_delta(path, missing_obj)) {
+    return false;
+  }
+  subscriber->set_metadata_synced();
+  return true;
 }
 
 }  // namespace signalk

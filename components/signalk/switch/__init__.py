@@ -1,5 +1,3 @@
-import json
-
 import esphome.codegen as cg
 from esphome.components import switch
 import esphome.config_validation as cv
@@ -11,6 +9,7 @@ from .. import (
     SIGNALK_PERIOD,
     SIGNALK_POLICY,
     signalk,
+    signalk_meta,
     signalk_ns,
     validate_signalk_path,
 )
@@ -53,33 +52,7 @@ async def to_code(config):
     cg.add(var.set_format(config[CONF_FORMAT]))
     cg.add(var.set_policy(config[CONF_POLICY]))
     cg.add(var.set_min_period(config[CONF_MIN_PERIOD]))
-    meta = config.get("meta", {})
-    if meta:
-        for key, value in meta.items():
-            # bool
-            if isinstance(value, bool):
-                cg.add(var.add_metadata(key, value))
-
-            # number (converted to C++ double)
-            elif isinstance(value, int | float):
-                cg.add(var.add_metadata(key, float(value)))
-
-            # string
-            elif isinstance(value, str):
-                cg.add(var.add_metadata(key, cg.std_string(value)))
-
-            # list of strings
-            elif isinstance(value, list):
-                vec = cg.std_vector.template(cg.std_string)()
-                for item in value:
-                    cg.add(vec.push_back(cg.std_string(item)))
-                cg.add(var.add_metadata(key, vec))
-            elif isinstance(value, dict):
-                json_str = json.dumps(value)
-                cg.add(var.add_metadata_from_json(key, cg.std_string(json_str)))
-
-            else:
-                raise cv.Invalid(f"Unsupported metadata type for '{key}': {value}")
+    await signalk_meta(config, var, defaults={"units": "bool", "supportsPut": True})
 
     parent = await cg.get_variable(config[CONF_SIGNALK_PARENT_ID])
     cg.add(parent.subscribe(var))

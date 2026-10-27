@@ -6,10 +6,12 @@ from esphome.const import CONF_PATH
 from .. import (
     CONF_UNIT,
     SIGNALK_FORMAT,
+    SIGNALK_META_SCHEMA,
     SIGNALK_PERIOD,
     SIGNALK_POLICY,
     UNIT,
     signalk,
+    signalk_meta,
     signalk_ns,
     validate_signalk_path,
 )
@@ -37,6 +39,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_POLICY, default="instant"): SIGNALK_POLICY,
             cv.Optional(CONF_MIN_PERIOD, default=200): SIGNALK_PERIOD,
             cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
+            cv.Optional("meta"): SIGNALK_META_SCHEMA,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -52,6 +55,7 @@ async def to_code(config):
     cg.add(var.set_policy(config[CONF_POLICY]))
     cg.add(var.set_min_period(config[CONF_MIN_PERIOD]))
     cg.add(var.set_unit(config[CONF_UNIT]))
+    await signalk_meta(config, var)
 
     parent = await cg.get_variable(config[CONF_SIGNALK_PARENT_ID])
     cg.add(parent.subscribe(var))

@@ -24,6 +24,12 @@ class SignalkSubscriber {
   void add_metadata(const std::string &key, const std::vector<std::string> &value);
   void add_metadata_from_json(const std::string &key, const std::string &json);
   void to_json(JsonVariant meta) const;
+  /// What the server lacks of our metadata; the server's values always win.
+  void metadata_missing_from(JsonVariantConst server, JsonObject out) const;
+  bool has_metadata() const { return !this->metadata_.empty(); }
+  /// True until the metadata was reconciled with the server (again after every reconnect).
+  bool needs_metadata_sync() const { return this->requires_metadata_update_; }
+  void set_metadata_synced() { this->requires_metadata_update_ = false; }
 
   void set_path(std::string path);
   void set_period(int period);

@@ -34,6 +34,10 @@ void SignalkSubscriber::add_metadata_from_json(const std::string &key, const std
 
 void SignalkSubscriber::to_json(JsonVariant meta) const { this->metadata_.to_json(meta); }
 
+void SignalkSubscriber::metadata_missing_from(JsonVariantConst server, JsonObject out) const {
+  this->metadata_.missing_from(server, out);
+}
+
 // -------- Configuration setters --------
 
 void SignalkSubscriber::set_path(std::string path) { this->path_ = std::move(path); }

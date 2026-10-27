@@ -255,7 +255,7 @@ on_value:
 
 ### Meta Data
 
-Switch, number and text components support [meta data](https://signalk.org/specification/1.7.0/doc/data_model_metadata.html), which will be passed on to the signalk server up on reconnection. Replicating the example on SK specification page, you get a meta data definition shown as below.
+All platforms (sensor, text_sensor, switch, number and text) support [meta data](https://signalk.org/specification/1.5.0/doc/data_model_metadata.html) through the optional `meta:` block. Replicating the example on the SK specification page, you get a meta data definition shown as below.
 
 ```yaml
 
@@ -290,6 +290,22 @@ Switch, number and text components support [meta data](https://signalk.org/speci
         message: "Exceeding maximum"
 
 ```
+
+#### How device and server meta data are merged
+
+The meta data on the SignalK server can be newer than what is compiled into the device (for example edited in the admin UI), so **the server always wins**. On every (re)connect the device reads the current meta data of each path from the server and only sends the keys the server does not have yet. A key that exists on the server is never overwritten, even when its value differs from the one in the YAML. If the server has no meta data for a path, everything from the YAML is sent. If the server cannot be reached, nothing is sent and the device retries after 10 seconds.
+
+Arrays such as `zones` count as one value: if the server has `zones` for the path, the ones in the YAML are ignored. Objects such as `displayScale` are merged key by key.
+
+#### Defaults
+
+Keys you do not set are filled in for you, and anything you write in `meta:` replaces them:
+
+| Key           | Default                                                                               |
+|---------------|---------------------------------------------------------------------------------------|
+| `units`       | The SI unit of the `unit:` option (e.g. `unit: knots` gives `m/s`), switches use `bool` |
+| `supportsPut` | `true` for switch, number and text                                                    |
+
 
 ### Publishing deltas
 
