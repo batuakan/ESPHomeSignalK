@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include <ArduinoJson.h>
+#include "esphome/components/json/json_util.h"
 
 #include "signalk_metadata.h"
 

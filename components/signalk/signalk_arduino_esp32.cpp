@@ -2,7 +2,7 @@
 #include "esphome/components/signalk/signalk_arduino_esp32.h"
 #include "esphome/core/log.h"
 
-#include <ArduinoJson.h>
+#include "esphome/components/json/json_util.h"
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 namespace esphome {

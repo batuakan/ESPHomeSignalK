@@ -12,8 +12,6 @@ external_components:
 logger:
   level: DEBUG
 
-json:
-
 api:
 
 signalk:
