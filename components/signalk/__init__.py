@@ -15,6 +15,7 @@ from esphome.const import (
     CONF_VALUE,
     PlatformFramework,
 )
+
 # from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE
 from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
@@ -161,6 +162,7 @@ async def delta_value_templatable(value, args):
     if cg.is_template(value):
         return await cg.templatable(value, args, cg.float_)
     return await cg.templatable(value, args, DeltaValue, to_exp=delta_value_constant)
+
 
 # Schema for zones array
 SIGNALK_ZONE_SCHEMA = cv.Schema(
