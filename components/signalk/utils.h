@@ -19,13 +19,9 @@ inline std::string generate_random_guid() {
   for (int i = 0; i < 4; ++i) {
     rnd[i] = random();
   }
-  snprintf(guid, sizeof(guid), "%08x-%04x-%04x-%04x-%04x%04x",
-          (unsigned int) rnd[0],
-          (unsigned int) (rnd[1] >> 16),
-          (unsigned int) (rnd[1] & 0xFFFF),
-          (unsigned int) (rnd[2] >> 16),
-          (unsigned int) (rnd[2] & 0xFFFF),
-          (unsigned int) (rnd[3] >> 16));
+  snprintf(guid, sizeof(guid), "%08x-%04x-%04x-%04x-%04x%04x", (unsigned int) rnd[0], (unsigned int) (rnd[1] >> 16),
+           (unsigned int) (rnd[1] & 0xFFFF), (unsigned int) (rnd[2] >> 16), (unsigned int) (rnd[2] & 0xFFFF),
+           (unsigned int) (rnd[3] >> 16));
   return std::string(guid);
 }
 
@@ -35,7 +31,8 @@ inline std::string generate_requestid() {
   for (int i = 0; i < 4; ++i) {
     rnd[i] = random();
   }
-  snprintf(guid, sizeof(guid), "%06x-%06x-%06x", (unsigned int) rnd[0] >> 16, (unsigned int) rnd[1] >> 16, (unsigned int) rnd[2] >> 16);
+  snprintf(guid, sizeof(guid), "%06x-%06x-%06x", (unsigned int) rnd[0] >> 16, (unsigned int) rnd[1] >> 16,
+           (unsigned int) rnd[2] >> 16);
   return std::string(guid);
 }
 
@@ -105,8 +102,8 @@ inline std::string get_uuid() {
     mac |= ((uint64_t) mac_bytes[i]) << (8 * (5 - i));
   }
   char uuid[37];
-  snprintf(uuid, sizeof(uuid), "%08x-%04x-%04x-%04x-%012llx",(unsigned int)  (mac >> 32), (unsigned int) (mac >> 16) & 0xFFFF,
-           (unsigned int) (mac) & 0xFFFF,
+  snprintf(uuid, sizeof(uuid), "%08x-%04x-%04x-%04x-%012llx", (unsigned int) (mac >> 32),
+           (unsigned int) (mac >> 16) & 0xFFFF, (unsigned int) (mac) & 0xFFFF,
            0x0ba2,  // could be anything fixed
            (unsigned long long) mac);
   return std::string(uuid);

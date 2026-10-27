@@ -20,6 +20,8 @@ Otherwise install esphome into a virtual python environment and build your proje
 
 To run on local machine, ix::websockets library is required, whoch should be installed system wide, or in a path where platformio can locate it.
 
+The component uses ESPHome's own ArduinoJson (the `json` component is loaded automatically, you do not need to add `json:` to your YAML). Do not pin ArduinoJson yourself, ESPHome picks the version.
+
 ## Known issues and limitations
 
 1. This component will not work with SSL, if you signalk server is sitting behind an SSL connection esp32 wont be able to connect to it yet.

@@ -3,6 +3,7 @@ import re
 
 from esphome import automation
 import esphome.codegen as cg
+from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
@@ -18,9 +19,10 @@ from esphome.const import (
 
 # from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE, ID
-from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 
 CODEOWNERS = ["@batuakan"]
+# ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
+AUTO_LOAD = ["json"]
 # DEPENDENCIES = ["wifi"]
 
 CONF_HOST = "host"
@@ -371,7 +373,6 @@ async def to_code(config):
     cg.add(var.set_user_name(config[CONF_USERNAME]))
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
 
-    # cg.add_library("bblanchon/ArduinoJson", "7.4.3")
     if CORE.is_esp32:
         if CORE.using_arduino:
             cg.add_library("ESPmDNS", None)
