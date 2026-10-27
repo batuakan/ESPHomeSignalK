@@ -2,7 +2,7 @@
 #include "esphome/components/signalk/signalk_arduino_esp32.h"
 #include "esphome/core/log.h"
 
-#include <ArduinoJson.h>
+#include "esphome/components/json/json_util.h"
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 namespace esphome {
@@ -14,8 +14,7 @@ using namespace websockets;
 bool SignalKArduino::connect(const std::string &path) {
   // run callback when messages are received
   webSocketClient_.onMessage([&](WebsocketsMessage message) {
-    ESP_LOGD(TAG, "Got Message: %s", message.data().c_str());
-    on_message(std::string(message.data().c_str(), message.data().length()));
+    enqueue_message(std::string(message.data().c_str(), message.data().length()));
   });
 
   // run callback when events are occuring
@@ -23,11 +22,11 @@ bool SignalKArduino::connect(const std::string &path) {
     if (event == WebsocketsEvent::ConnectionOpened) {
       ESP_LOGD(TAG, "Connnection Opened");
       isconnected_ = true;
-      on_connected();
+      signal_connected();
     } else if (event == WebsocketsEvent::ConnectionClosed) {
       ESP_LOGD(TAG, "Connnection Closed");
       isconnected_ = false;
-      on_disconnected();
+      signal_disconnected();
     } else if (event == WebsocketsEvent::GotPing) {
       ESP_LOGD(TAG, "Got a Ping!");
     } else if (event == WebsocketsEvent::GotPong) {

@@ -3,6 +3,7 @@ import re
 
 from esphome import automation
 import esphome.codegen as cg
+from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
@@ -15,11 +16,13 @@ from esphome.const import (
     CONF_VALUE,
     PlatformFramework,
 )
+
 # from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE
-from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 
 CODEOWNERS = ["@batuakan"]
+# ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
+AUTO_LOAD = ["json"]
 # DEPENDENCIES = ["wifi"]
 
 CONF_HOST = "host"
@@ -142,6 +145,25 @@ PutRequestBool = PutRequestAction.template(cg.bool_)
 
 PutRequestString = PutRequestAction.template(cg.std_string)
 
+# std::variant<float, std::string, bool>, see signalk.h
+DeltaValue = signalk_ns.struct("DeltaValue")
+
+
+def delta_value_constant(value):
+    """Emit a constant that selects the intended DeltaValue alternative unambiguously."""
+    if isinstance(value, bool):
+        return cg.RawExpression("true" if value else "false")
+    if isinstance(value, str):
+        return cg.RawExpression(f"std::string({cg.safe_exp(value)})")
+    return cg.RawExpression(f"{float(value)!r}f")
+
+
+async def delta_value_templatable(value, args):
+    if cg.is_template(value):
+        return await cg.templatable(value, args, cg.float_)
+    return await cg.templatable(value, args, DeltaValue, to_exp=delta_value_constant)
+
+
 # Schema for zones array
 SIGNALK_ZONE_SCHEMA = cv.Schema(
     {
@@ -189,7 +211,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_USERNAME, default=""): cv.string,
         cv.Optional(CONF_PASSWORD, default=""): cv.string,
     }
-)
+    # The access/connection state machine runs in update(). Without an interval ESPHome
+    # (2026.x) never calls update() on a PollingComponent, so default to 1s.
+).extend(cv.polling_component_schema("1s"))
 
 
 PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
@@ -232,7 +256,7 @@ async def put_request_to_code(config, action_id, template_arg, args):
     if CONF_UNIT in config:
         cg.add(var.set_unit(config[CONF_UNIT]))
     if CONF_VALUE in config:
-        templ = await cg.templatable(config[CONF_VALUE], args, cg.float_)
+        templ = await delta_value_templatable(config[CONF_VALUE], args)
         cg.add(var.set_value(templ))
     return var
 
@@ -246,7 +270,7 @@ async def publish_delta_to_code(config, action_id, template_arg, args):
     if CONF_UNIT in config:
         cg.add(var.set_unit(config[CONF_UNIT]))
     if CONF_VALUE in config:
-        templ = await cg.templatable(config[CONF_VALUE], args, cg.float_)
+        templ = await delta_value_templatable(config[CONF_VALUE], args)
         cg.add(var.set_value(templ))
     return var
 
@@ -286,7 +310,6 @@ async def to_code(config):
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
     # signalk_meta(config, var)
 
-    # cg.add_library("bblanchon/ArduinoJson", "7.4.3")
     if CORE.is_esp32:
         if CORE.using_arduino:
             cg.add_library("ESPmDNS", None)

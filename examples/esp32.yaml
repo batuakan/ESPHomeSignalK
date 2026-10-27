@@ -22,8 +22,6 @@ captive_portal:
 logger:
   level: DEBUG
 
-json:
-
 signalk:
   host: 192.168.0.3
   # port: 3000 (Optional defaults to 3000)

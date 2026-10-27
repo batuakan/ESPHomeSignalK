@@ -1,5 +1,9 @@
 #pragma once
+#include <atomic>
+#include <deque>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <set>
 #include <vector>
 #include <variant>
@@ -7,10 +11,11 @@
 #include "esphome/core/automation.h"
 
 // #include "esphome/components/sensor/sensor.h"
-#include <ArduinoJson.h>
+#include "esphome/components/json/json_util.h"
 #include "signalk_subscriber.h"
 #include "utils.h"
 #include "unit_conversions.h"
+#include "subscription_set.h"
 
 namespace esphome {
 namespace signalk {
@@ -28,12 +33,16 @@ struct HttpResponse {
   std::string body;
 };
 
+/// Coarse access state for consumers that need to tell the user what to do.
+enum class SignalKAccessState { NO_TOKEN = 0, PENDING_APPROVAL = 1, DENIED = 2, AUTHORIZED = 3 };
+
+/// Called on the main loop with the value of a delta for a listened path.
+using SignalKListener = std::function<void(const std::string &path, JsonVariantConst value)>;
+
 class SignalK : public PollingComponent {
  public:
   void dump_config() override;
   void login();
-  void on_connected();
-  void on_disconnected();
   void on_message(const std::string &msg);
   void on_receive_delta(JsonArray &arr);
   void publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value);
@@ -52,27 +61,43 @@ class SignalK : public PollingComponent {
   void set_user_password(std::string user_password) { user_password_ = user_password; }
   void set_sensor_value(SignalkSubscriber *sensor, JsonVariant value);
   void setup() override;
-  void subscribe(SignalkSubscriber *sensor) {
-    // Accessing elements using find()
-    auto it = topics_.find(sensor->get_path());
-    if (it == topics_.end()) {
-      topics_.insert(sensor->get_path());
-    }
-    sensors_.push_back(sensor);
-    // sensors_.insert(std::pair<std::string, SignalkSubscriber *>(sensor->get_path(), sensor));
-  }
+  /// Register a YAML-declared subscriber (codegen, before setup()).
+  void subscribe(SignalkSubscriber *sensor);
   void update() override;
+  /// Drains the transport inbox and applies subscription changes; main loop only.
+  void loop() override;
+
+  /// Runtime listeners (main loop only). Returns an id for remove_listener().
+  uint32_t add_listener(const std::string &path, SignalKListener callback);
+  void remove_listener(uint32_t id);
+
+  // Read-only state for other components (main loop only).
+  const std::string &get_token() const { return token_; }
+  const std::string &get_host() const { return host_; }
+  unsigned short get_port() const { return port_; }
+  std::string get_device_id() const { return get_uuid(); }
+  bool is_stream_connected() const { return stream_connected_.load(); }
+  SignalKAccessState access_state() const;
 
   virtual bool connect(const std::string &path) = 0;
   virtual bool discovery() = 0;
   virtual bool send(const std::string &msg) = 0;
-  // virtual void update() = 0;
   virtual bool is_connected() const = 0;
 
   virtual HttpResponse get(const std::string &path) = 0;
   virtual HttpResponse post(const std::string &path, const std::string &msg) = 0;
 
  protected:
+  // Transport hand-off (safe from any thread): the WebSocket client task/thread only queues;
+  // all parsing, callbacks and subscription changes happen in loop().
+  void signal_connected();
+  void signal_disconnected();
+  void enqueue_message(std::string &&msg);
+
+  void on_connected();
+  void on_disconnected();
+  void sync_subscriptions();
+
   std::string host_;
   unsigned short port_;
   std::string device_name_;
@@ -81,9 +106,25 @@ class SignalK : public PollingComponent {
   std::string request_access_href_;
   std::string token_;
 
-  // std::map<std::string, SignalkSubscriber *> sensors_;
   std::vector<SignalkSubscriber *> sensors_;
-  std::set<std::string> topics_;
+  SubscriptionSet subscriptions_;
+  uint32_t subscriptions_changed_at_{0};
+
+  struct Listener {
+    uint32_t id;
+    std::string path;
+    SignalKListener callback;
+  };
+  std::vector<Listener> listeners_;
+  uint32_t next_listener_id_{1};
+
+  std::mutex inbox_mutex_;
+  std::deque<std::string> inbox_;
+  size_t inbox_bytes_{0};
+  uint32_t inbox_dropped_{0};
+  std::atomic<bool> connected_event_{false};
+  std::atomic<bool> disconnected_event_{false};
+  std::atomic<bool> stream_connected_{false};
 
   SignalKPreferedAccessMethod prefered_access_method_{SignalKPreferedAccessMethod::REQUEST_ACCESS};
   SignalKRequestAccessState request_access_state_{SignalKRequestAccessState::UNKNOWN};

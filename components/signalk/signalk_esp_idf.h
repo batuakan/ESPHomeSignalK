@@ -13,8 +13,6 @@ namespace signalk {
 esp_err_t _http_event_handler(esp_http_client_event_t *evt);
 
 class SignalKEspIdf : public SignalK {
-  friend esp_err_t _http_event_handler(esp_http_client_event_t *evt);
-
  public:
   SignalKEspIdf() { isconnected_ = false; }
   ~SignalKEspIdf() {}
@@ -27,10 +25,18 @@ class SignalKEspIdf : public SignalK {
   HttpResponse get(const std::string &path) override;
   HttpResponse post(const std::string &path, const std::string &msg) override;
 
+  /// Runs in the esp_websocket_client task: only hands events and complete messages over.
+  void handle_websocket_event(int32_t event_id, esp_websocket_event_data_t *data);
+
  private:
   esp_websocket_client_handle_t websocket_client;
   bool isconnected_;
   std::string auth_header_;
+
+  // Reassembly of text messages delivered in several chunks (websocket task only).
+  std::string frame_;
+  bool frame_text_{false};
+  bool frame_overflow_{false};
 };
 
 }  // namespace signalk

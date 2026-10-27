@@ -1,6 +1,13 @@
 #pragma once
 
+// Use ESPHome's header: it sets the ArduinoJson configuration macros before including the library, and
+// including the library directly first would configure it differently from the rest of ESPHome.
+// The fallback lets the host unit tests build without ESPHome.
+#if __has_include("esphome/components/json/json_util.h")
+#include "esphome/components/json/json_util.h"
+#else
 #include <ArduinoJson.h>
+#endif
 #include <string>
 
 class SignalKMetadata {

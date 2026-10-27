@@ -29,17 +29,19 @@ bool SignalKx86::connect(const std::string &path) {
     if (msg->type == ix::WebSocketMessageType::Open) {
       ESP_LOGD(TAG, "WebSocket connected");
       isconnected_ = true;  // ix::WebSocket is async; assume true for now
-      this->on_connected();
+      this->signal_connected();
 
     } else if (msg->type == ix::WebSocketMessageType::Close) {
       ESP_LOGD(TAG, "WebSocket disconnected");
       isconnected_ = false;
-      this->on_disconnected();
+      this->signal_disconnected();
     } else if (msg->type == ix::WebSocketMessageType::Message) {
-      this->on_message(msg->str);
+      std::string text = msg->str;
+      this->enqueue_message(std::move(text));
     } else if (msg->type == ix::WebSocketMessageType::Error) {
       isconnected_ = false;  // ix::WebSocket is async; assume true for now
       ESP_LOGW(TAG, "WebSocket error: %s", msg->errorInfo.reason.c_str());
+      this->signal_disconnected();
     }
   });
 
@@ -75,7 +77,6 @@ HttpResponse SignalKx86::post(const std::string &path, const std::string &msg) {
   ix::WebSocketHttpHeaders headers;
   if (!token_.empty()) {
     auto auth = "Bearer " + token_;
-    ESP_LOGD(TAG, "Using auth: %s", auth.c_str());
     headers["Authorization"] = auth;
   }
   headers["Content-Type"] = "application/json";
@@ -98,7 +99,6 @@ HttpResponse SignalKx86::get(const std::string &path) {
   ix::WebSocketHttpHeaders headers;
   if (!token_.empty()) {
     auto auth = "Bearer " + token_;
-    ESP_LOGD(TAG, "Using auth: %s", auth.c_str());
     headers["Authorization"] = auth;
   }
   args->extraHeaders = headers;
@@ -125,7 +125,7 @@ void SignalKx86::save_token() {
   file.write(token_.c_str(), len);
   file.close();
 
-  ESP_LOGI(TAG, "Saved token to file '%s': %s", filename, token_.c_str());
+  ESP_LOGI(TAG, "Saved token to file '%s'", filename);
 }
 
 void SignalKx86::load_token() {
@@ -145,7 +145,7 @@ void SignalKx86::load_token() {
   token_ = std::string(buffer);
   if (!token_.empty()) {
     request_access_state_ = SignalKRequestAccessState::HASTOKEN;
-    ESP_LOGI(TAG, "Loaded token from file '%s': %s", filename, token_.c_str());
+    ESP_LOGI(TAG, "Loaded token from file '%s'", filename);
   } else {
     ESP_LOGW(TAG, "Token file was empty");
   }
