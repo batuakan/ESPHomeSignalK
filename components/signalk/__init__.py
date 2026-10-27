@@ -3,6 +3,7 @@ import re
 
 from esphome import automation
 import esphome.codegen as cg
+from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
@@ -18,7 +19,6 @@ from esphome.const import (
 
 # from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE
-from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 
 CODEOWNERS = ["@batuakan"]
 # ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
