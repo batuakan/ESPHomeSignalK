@@ -4,13 +4,22 @@
 #include <string>
 #include <vector>
 
+/// True for a value that carries no information: null, or the empty string the server fills in as a
+/// placeholder (it adds "description": "" to every path it learns).
+inline bool signalk_metadata_blank(JsonVariantConst value) {
+  return value.isNull() || (value.is<const char *>() && value.as<const char *>()[0] == '\0');
+}
+
 /// Copies into `out` the entries of `ours` that `server` does not have.
 /// Server values always win: a key the server has is never copied, even if the values differ.
 /// Objects are compared key by key, everything else (scalars, arrays such as `zones`) is atomic.
+/// A blank server value (see signalk_metadata_blank) counts as missing.
 inline void signalk_metadata_missing(JsonObjectConst ours, JsonObjectConst server, JsonObject out) {
   for (JsonPairConst kv : ours) {
     JsonVariantConst theirs = server[kv.key()];
-    if (theirs.isNull()) {
+    if (signalk_metadata_blank(theirs)) {
+      if (signalk_metadata_blank(kv.value()))
+        continue;  // nothing worth sending
       out[kv.key()] = kv.value();
     } else if (kv.value().is<JsonObjectConst>() && theirs.is<JsonObjectConst>()) {
       JsonObject nested = out[kv.key()].to<JsonObject>();

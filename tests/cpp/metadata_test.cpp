@@ -45,7 +45,14 @@ int main() {
   CHECK(diff(R"({"a":1,"b":"x"})", R"({"a":99})") == R"({"b":"x"})");
 
   // Falsy server values are still values.
-  CHECK(diff(R"({"supportsPut":true,"description":"d"})", R"({"supportsPut":false,"description":""})") == "{}");
+  CHECK(diff(R"({"supportsPut":true,"timeout":5})", R"({"supportsPut":false,"timeout":0})") == "{}");
+
+  // An empty string is the server's placeholder (it adds "description": "" to every path), so it counts as
+  // missing, but an empty string of ours is not worth sending.
+  CHECK(diff(R"({"description":"d"})", R"({"description":""})") == R"({"description":"d"})");
+  CHECK(diff(R"({"description":""})", R"({"description":""})") == "{}");
+  CHECK(diff(R"({"description":""})", "{}") == "{}");
+  CHECK(diff(R"({"description":"d"})", R"({"description":"set on server"})") == "{}");
 
   // A null on the server counts as missing.
   CHECK(diff(R"({"a":1})", R"({"a":null})") == R"({"a":1})");
