@@ -293,7 +293,7 @@ All platforms (sensor, text_sensor, switch, number and text) support [meta data]
 
 #### How device and server meta data are merged
 
-The meta data on the SignalK server can be newer than what is compiled into the device (for example edited in the admin UI), so **the server always wins**. On every (re)connect the device reads the current meta data of each path from the server and only sends the keys the server does not have yet. A key that exists on the server is never overwritten, even when its value differs from the one in the YAML. If the server has no meta data for a path, everything from the YAML is sent. If the server cannot be reached, nothing is sent and the device retries after 10 seconds.
+The meta data on the SignalK server can be newer than what is compiled into the device (for example edited in the admin UI), so **the server always wins**. On every (re)connect the device reads the current meta data of each path from the server and only sends the keys the server does not have yet. A key that exists on the server is never overwritten, even when its value differs from the one in the YAML (an empty string counts as not set, see below). If the server has no meta data for a path, everything from the YAML is sent. If the server cannot be reached, nothing is sent and the device retries after 10 seconds.
 
 Arrays such as `zones` count as one value: if the server has `zones` for the path, the ones in the YAML are ignored. Objects such as `displayScale` are merged key by key.
 
@@ -326,6 +326,24 @@ sensor:
         path: "environment.temperature"
         unit: "celsius"
 ```
+
+#### Meta data for published paths
+
+`signalk.publish_delta` accepts the same `meta:` block as the platforms above. The meta data is not sent along with every delta, it is synchronised with the server once per (re)connect with the same rule as before: the server always wins, only keys the server does not have yet are sent. `units` defaults to the SI unit of `unit:`. An empty value on the server, such as the `description: ""` that the server adds to every path it learns, counts as missing.
+
+```yaml
+  on_value:
+    - signalk.publish_delta:
+        path: "propulsion.engine.revolutions"
+        unit: "rotations_per_minute"   # meta.units defaults to Hz
+        meta:
+          displayName: "Tachometer"
+          zones:
+            - upper: 4
+              state: alarm
+```
+
+See `examples/digital_engine.yaml` for a complete example.
 
 
 ### PUT Requests

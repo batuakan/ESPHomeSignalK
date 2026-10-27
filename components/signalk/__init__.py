@@ -18,7 +18,7 @@ from esphome.const import (
 )
 
 # from esphome.components.esp32 import idf_component_register
-from esphome.core import CORE
+from esphome.core import CORE, ID
 
 CODEOWNERS = ["@batuakan"]
 # ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
@@ -161,6 +161,7 @@ _SI_UNITS = {
 UNIT_SI = {unit: si for si, units in _SI_UNITS.items() for unit in units}
 
 
+SignalkPublishedMeta = signalk_ns.class_("SignalkPublishedMeta")
 PublishDeltaAction = signalk_ns.class_("PublishDeltaAction")
 PublishDeltaActionFloat = PublishDeltaAction.template(cg.float_)
 PublishDeltaActionBool = PublishDeltaAction.template(cg.bool_)
@@ -280,6 +281,7 @@ PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
         ),
         cv.Required(CONF_PATH): validate_signalk_path,
         cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
+        cv.Optional(CONF_META): SIGNALK_META_SCHEMA,
     }
 )
 
@@ -324,6 +326,13 @@ async def publish_delta_to_code(config, action_id, template_arg, args):
     if CONF_VALUE in config:
         templ = await delta_value_templatable(config[CONF_VALUE], args)
         cg.add(var.set_value(templ))
+    if CONF_META in config:
+        # The path is only published, so the metadata lives in its own object that the parent syncs
+        # with the server on every (re)connect, instead of being sent along with every delta.
+        meta = cg.new_Pvariable(ID(f"{action_id.id}_meta", is_declaration=True, type=SignalkPublishedMeta))
+        cg.add(meta.set_path(config[CONF_PATH]))
+        await signalk_meta(config, meta)
+        cg.add(parent.add_metadata_source(meta))
     return var
 
 

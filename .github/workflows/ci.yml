@@ -39,6 +39,7 @@ jobs:
         config:
           - examples/esp32.yaml
           - examples/digitalswitch.yaml
+          - examples/digital_engine.yaml
           - examples/SDL.yaml
           - tests/components/signalk/test.esp32-ard.yaml
           - tests/components/signalk/test.esp32-idf.yaml
