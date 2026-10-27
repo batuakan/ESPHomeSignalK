@@ -240,6 +240,9 @@ void SignalK::on_disconnected() {
     // it->second->disconnected();
     (*it)->disconnected();
   }
+  for (auto *source : meta_sources_) {
+    source->disconnected();
+  }
 }
 
 void SignalK::login() {
@@ -575,18 +578,21 @@ bool SignalK::publish_meta_delta(const std::string &path, JsonVariantConst meta)
 // there), so the device only fills in what the server lacks and never overwrites a server value.
 // The stream cannot tell us what the server has: with sendMeta it only delivers metadata together with
 // a value, and writable paths often have none yet. So ask over HTTP, one subscriber per call.
+// Covers both the entities that subscribe to a path and the paths that are only published.
 void SignalK::sync_metadata() {
-  for (auto *subscriber : sensors_) {
-    if (!subscriber->needs_metadata_sync())
-      continue;
-    if (!subscriber->has_metadata() || subscriber->get_path().find('*') != std::string::npos) {
-      subscriber->set_metadata_synced();  // nothing to send, or a wildcard has no single metadata
-      continue;
+  for (const auto *list : {&sensors_, &meta_sources_}) {
+    for (auto *subscriber : *list) {
+      if (!subscriber->needs_metadata_sync())
+        continue;
+      if (!subscriber->has_metadata() || subscriber->get_path().find('*') != std::string::npos) {
+        subscriber->set_metadata_synced();  // nothing to send, or a wildcard has no single metadata
+        continue;
+      }
+      if (!this->sync_metadata_of(subscriber)) {
+        metadata_next_attempt_at_ = sk_millis() + METADATA_RETRY_MS;
+      }
+      return;
     }
-    if (!this->sync_metadata_of(subscriber)) {
-      metadata_next_attempt_at_ = sk_millis() + METADATA_RETRY_MS;
-    }
-    return;
   }
 }
 

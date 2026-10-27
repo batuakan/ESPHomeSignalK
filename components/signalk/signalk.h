@@ -64,6 +64,8 @@ class SignalK : public PollingComponent {
   void setup() override;
   /// Register a YAML-declared subscriber (codegen, before setup()).
   void subscribe(SignalkSubscriber *sensor);
+  /// Register metadata for a path that is only published (signalk.publish_delta); not subscribed to.
+  void add_metadata_source(SignalkSubscriber *source) { meta_sources_.push_back(source); }
   void update() override;
   /// Drains the transport inbox and applies subscription changes; main loop only.
   void loop() override;
@@ -110,6 +112,7 @@ class SignalK : public PollingComponent {
   std::string token_;
 
   std::vector<SignalkSubscriber *> sensors_;
+  std::vector<SignalkSubscriber *> meta_sources_;
   SubscriptionSet subscriptions_;
   uint32_t subscriptions_changed_at_{0};
   // Earliest time the next metadata sync may run (backoff after a failed server request).
@@ -134,6 +137,13 @@ class SignalK : public PollingComponent {
   SignalKPreferedAccessMethod prefered_access_method_{SignalKPreferedAccessMethod::REQUEST_ACCESS};
   SignalKRequestAccessState request_access_state_{SignalKRequestAccessState::UNKNOWN};
   SignalKLoginState login_state_{SignalKLoginState::UNKNOWN};
+};
+
+/// Holds the metadata of a path the device publishes with signalk.publish_delta. It never receives values.
+class SignalkPublishedMeta : public SignalkSubscriber {
+ public:
+  void update() override {}
+  void set_value(JsonVariant &value) override {}
 };
 
 using DeltaValue = std::variant<float, std::string, bool>;
