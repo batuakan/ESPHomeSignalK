@@ -46,7 +46,8 @@ class SignalK : public PollingComponent {
   void on_message(const std::string &msg);
   void on_receive_delta(JsonArray &arr);
   void publish_delta(const std::string &path, const std::variant<double, std::string, bool> &value);
-  void publish_meta_delta(SignalkSubscriber *subscriber);
+  /// Sends a meta delta for `path`; returns false when it could not be sent.
+  bool publish_meta_delta(const std::string &path, JsonVariantConst meta);
   void put_request(const std::string &path, const std::variant<double, std::string, bool> &value);
   void send_access_request();
   void poll_access_request();
@@ -97,6 +98,8 @@ class SignalK : public PollingComponent {
   void on_connected();
   void on_disconnected();
   void sync_subscriptions();
+  void sync_metadata();
+  bool sync_metadata_of(SignalkSubscriber *subscriber);
 
   std::string host_;
   unsigned short port_;
@@ -109,6 +112,8 @@ class SignalK : public PollingComponent {
   std::vector<SignalkSubscriber *> sensors_;
   SubscriptionSet subscriptions_;
   uint32_t subscriptions_changed_at_{0};
+  // Earliest time the next metadata sync may run (backoff after a failed server request).
+  uint32_t metadata_next_attempt_at_{0};
 
   struct Listener {
     uint32_t id;

@@ -53,33 +53,7 @@ async def to_code(config):
     cg.add(var.set_policy(config[CONF_POLICY]))
     cg.add(var.set_min_period(config[CONF_MIN_PERIOD]))
     cg.add(var.set_unit(config[CONF_UNIT]))
-    await signalk_meta(config, var)
-    # meta = config.get("meta", {})
-    # if meta:
-    #     for key, value in meta.items():
-    #         # bool
-    #         if isinstance(value, bool):
-    #             cg.add(var.add_metadata(key, value))
-
-    #         # number (converted to C++ double)
-    #         elif isinstance(value, (int, float)):
-    #             cg.add(var.add_metadata(key, float(value)))
-
-    #         # string
-    #         elif isinstance(value, str):
-    #             cg.add(var.add_metadata(key, cg.std_string(value)))
-
-    #         # list of strings
-    #         elif isinstance(value, list):
-    #             json_str = json.dumps(value)
-    #             cg.add(var.add_metadata_from_json(key, cg.std_string(json_str)))
-    #         # dictionary
-    #         elif isinstance(value, dict):
-    #             json_str = json.dumps(value)
-    #             cg.add(var.add_metadata_from_json(key, cg.std_string(json_str)))
-
-    #         else:
-    #             raise cv.Invalid(f"Unsupported metadata type for '{key}': {value}")
+    await signalk_meta(config, var, defaults={"supportsPut": True})
 
     parent = await cg.get_variable(config[CONF_SIGNALK_PARENT_ID])
     cg.add(parent.subscribe(var))

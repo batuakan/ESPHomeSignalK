@@ -15,6 +15,7 @@ from esphome.const import (
     CONF_VALUE,
     PlatformFramework,
 )
+
 # from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE
 from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
@@ -130,6 +131,34 @@ UNIT = {
 }
 
 
+# SignalK always carries SI base units; this maps each unit to the one its values have on the server.
+_SI_UNITS = {
+    "rad": ("radians", "degrees", "gradians"),
+    "rad/s": ("radians_per_second", "degrees_per_second", "degrees_per_minute"),
+    "C": ("coulumb", "ampere_hours"),
+    "A": ("amperes", "milliamperes"),
+    "J": ("joules", "kilowatt_hours"),
+    "m3/s": (
+        "cubic_meters_per_second",
+        "liters_per_minute",
+        "liters_per_hour",
+        "gallons_per_minute",
+        "gallons_per_hour",
+    ),
+    "Hz": ("hertz", "rotations_per_minute", "kilohertz", "megahertz", "gigahertz"),
+    "m": ("meters", "fathoms", "feet", "kilometers", "nautical_miles", "miles"),
+    "V": ("volts", "millivolts"),
+    "W": ("watts", "milliwatts"),
+    "ratio": ("ratio", "percentage"),
+    "ohm": ("ohms", "kilo_ohms"),
+    "m/s": ("meters_per_second", "knots", "kilometers_per_hour", "miles_per_hour"),
+    "K": ("kelvin", "celsius", "fahrenheit"),
+    "s": ("seconds", "minutes", "hours", "days"),
+    "m3": ("liters", "cubic_meters", "gallons"),
+}
+UNIT_SI = {unit: si for si, units in _SI_UNITS.items() for unit in units}
+
+
 PublishDeltaAction = signalk_ns.class_("PublishDeltaAction")
 PublishDeltaActionFloat = PublishDeltaAction.template(cg.float_)
 PublishDeltaActionBool = PublishDeltaAction.template(cg.bool_)
@@ -160,40 +189,65 @@ async def delta_value_templatable(value, args):
         return await cg.templatable(value, args, cg.float_)
     return await cg.templatable(value, args, DeltaValue, to_exp=delta_value_constant)
 
+
+SIGNALK_ALERT_METHOD = cv.ensure_list(cv.one_of("visual", "sound", lower=True))
+
+
+def validate_zone(zone):
+    if "lower" in zone and "upper" in zone and zone["lower"] >= zone["upper"]:
+        raise cv.Invalid("A zone's 'lower' must be smaller than its 'upper'")
+    if "lower" not in zone and "upper" not in zone:
+        raise cv.Invalid("A zone needs at least one of 'lower' and 'upper'")
+    return zone
+
+
+def validate_display_scale(scale):
+    if scale["lower"] >= scale["upper"]:
+        raise cv.Invalid("displayScale 'lower' must be smaller than 'upper'")
+    return scale
+
+
 # Schema for zones array
-SIGNALK_ZONE_SCHEMA = cv.Schema(
-    {
-        cv.Optional("lower"): cv.float_,
-        cv.Optional("upper"): cv.float_,
-        cv.Required("state"): cv.one_of("normal", "warn", "alarm", "emergency", lower=True),
-        cv.Optional("message"): cv.string,
-    }
+SIGNALK_ZONE_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.Optional("lower"): cv.float_,
+            cv.Optional("upper"): cv.float_,
+            cv.Required("state"): cv.one_of("normal", "nominal", "alert", "warn", "alarm", "emergency", lower=True),
+            cv.Optional("message"): cv.string,
+        }
+    ),
+    validate_zone,
 )
 
 # Schema for displayScale
-SIGNALK_DISPLAY_SCALE_SCHEMA = cv.Schema(
-    {
-        cv.Required("lower"): cv.float_,
-        cv.Required("upper"): cv.float_,
-        cv.Required("type"): cv.one_of("linear", "log", lower=True),
-    }
+SIGNALK_DISPLAY_SCALE_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.Required("lower"): cv.float_,
+            cv.Required("upper"): cv.float_,
+            cv.Required("type"): cv.one_of("linear", "log", "squareroot", "power", lower=True),
+            cv.Optional("power"): cv.float_,
+        }
+    ),
+    validate_display_scale,
 )
 
-# Schema for metadata block
+# Schema for metadata block (SignalK data model, metadata)
 SIGNALK_META_SCHEMA = cv.Schema(
     {
         cv.Optional("displayName"): cv.string,
         cv.Optional("longName"): cv.string,
         cv.Optional("shortName"): cv.string,
         cv.Optional("description"): cv.string,
-        cv.Optional("units"): cv.string,  # could restrict to known units if desired
+        cv.Optional("units"): cv.string,
         cv.Optional("timeout"): cv.positive_float,
-        cv.Optional("supportPut"): cv.boolean,
+        cv.Optional("supportsPut"): cv.boolean,
         cv.Optional("displayScale"): SIGNALK_DISPLAY_SCALE_SCHEMA,
-        cv.Optional("alertMethod"): cv.ensure_list(cv.string),
-        cv.Optional("warnMethod"): cv.ensure_list(cv.string),
-        cv.Optional("alarmMethod"): cv.ensure_list(cv.string),
-        cv.Optional("emergencyMethod"): cv.ensure_list(cv.string),
+        cv.Optional("alertMethod"): SIGNALK_ALERT_METHOD,
+        cv.Optional("warnMethod"): SIGNALK_ALERT_METHOD,
+        cv.Optional("alarmMethod"): SIGNALK_ALERT_METHOD,
+        cv.Optional("emergencyMethod"): SIGNALK_ALERT_METHOD,
         cv.Optional("zones"): cv.ensure_list(SIGNALK_ZONE_SCHEMA),
     }
 )
@@ -271,29 +325,32 @@ async def publish_delta_to_code(config, action_id, template_arg, args):
     return var
 
 
-async def signalk_meta(config, var):
-    print("Processing metadata for", var, "with config:", config)
-    meta = config.get("meta", {})
-    if meta:
-        for key, value in meta.items():
-            # bool
-            if isinstance(value, bool):
-                cg.add(var.add_metadata(key, value))
+async def signalk_meta(config, var, defaults=None):
+    """Add the entity's `meta:` block to its C++ object.
 
-            # number (converted to C++ double)
-            elif isinstance(value, int | float):
-                cg.add(var.add_metadata(key, float(value)))
+    `defaults` are used for keys the user did not set; `units` is derived from `unit:` when it is not
+    given. At runtime the device only sends the keys the server does not have yet.
+    """
+    meta = dict(defaults or {})
+    unit = config.get(CONF_UNIT)
+    if unit is not None and "units" not in meta:
+        si = UNIT_SI.get(unit)
+        if si:
+            meta["units"] = si
+    meta.update(config.get("meta", {}))
 
-            # string
-            elif isinstance(value, str):
-                cg.add(var.add_metadata(key, cg.std_string(value)))
-
-            elif isinstance(value, list | dict):
-                json_str = json.dumps(value)
-                cg.add(var.add_metadata_from_json(key, cg.std_string(json_str)))
-
-            else:
-                raise cv.Invalid(f"Unsupported metadata type for '{key}': {value}")
+    for key, value in meta.items():
+        # bool must be checked before numbers: bool is an int
+        if isinstance(value, bool):
+            cg.add(var.add_metadata(key, value))
+        elif isinstance(value, int | float):
+            cg.add(var.add_metadata(key, float(value)))
+        elif isinstance(value, str):
+            cg.add(var.add_metadata(key, cg.std_string(value)))
+        elif isinstance(value, list | dict):
+            cg.add(var.add_metadata_from_json(key, cg.std_string(json.dumps(value))))
+        else:
+            raise cv.Invalid(f"Unsupported metadata type for '{key}': {value}")
 
 
 async def to_code(config):
@@ -304,7 +361,6 @@ async def to_code(config):
     cg.add(var.set_device_name(config[CONF_NAME]))
     cg.add(var.set_user_name(config[CONF_USERNAME]))
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
-    # signalk_meta(config, var)
 
     # cg.add_library("bblanchon/ArduinoJson", "7.4.3")
     if CORE.is_esp32:

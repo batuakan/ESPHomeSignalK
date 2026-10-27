@@ -3,7 +3,16 @@ from esphome.components import text_sensor
 import esphome.config_validation as cv
 from esphome.const import CONF_PATH
 
-from .. import SIGNALK_FORMAT, SIGNALK_PERIOD, SIGNALK_POLICY, signalk, signalk_ns, validate_signalk_path
+from .. import (
+    SIGNALK_FORMAT,
+    SIGNALK_META_SCHEMA,
+    SIGNALK_PERIOD,
+    SIGNALK_POLICY,
+    signalk,
+    signalk_meta,
+    signalk_ns,
+    validate_signalk_path,
+)
 
 CONF_PERIOD = "period"
 CONF_FORMAT = "format"
@@ -26,6 +35,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_FORMAT, default="delta"): SIGNALK_FORMAT,
             cv.Optional(CONF_POLICY, default="instant"): SIGNALK_POLICY,
             cv.Optional(CONF_MIN_PERIOD, default=200): SIGNALK_PERIOD,
+            cv.Optional("meta"): SIGNALK_META_SCHEMA,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -40,6 +50,7 @@ async def to_code(config):
     cg.add(var.set_format(config[CONF_FORMAT]))
     cg.add(var.set_policy(config[CONF_POLICY]))
     cg.add(var.set_min_period(config[CONF_MIN_PERIOD]))
+    await signalk_meta(config, var)
 
     parent = await cg.get_variable(config[CONF_SIGNALK_PARENT_ID])
     cg.add(parent.subscribe(var))
