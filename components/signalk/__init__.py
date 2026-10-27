@@ -20,6 +20,8 @@ from esphome.core import CORE
 from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
 
 CODEOWNERS = ["@batuakan"]
+# ArduinoJson comes from ESPHome's json component at the version ESPHome pins; never add it here.
+AUTO_LOAD = ["json"]
 # DEPENDENCIES = ["wifi"]
 
 CONF_HOST = "host"
@@ -306,7 +308,6 @@ async def to_code(config):
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
     # signalk_meta(config, var)
 
-    # cg.add_library("bblanchon/ArduinoJson", "7.4.3")
     if CORE.is_esp32:
         if CORE.using_arduino:
             cg.add_library("ESPmDNS", None)

@@ -21,8 +21,6 @@ captive_portal:
 logger:
   level: DEBUG
 
-json:
-
 api:
 
 signalk:

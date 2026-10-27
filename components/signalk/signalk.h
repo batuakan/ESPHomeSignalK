@@ -11,7 +11,7 @@
 #include "esphome/core/automation.h"
 
 // #include "esphome/components/sensor/sensor.h"
-#include <ArduinoJson.h>
+#include "esphome/components/json/json_util.h"
 #include "signalk_subscriber.h"
 #include "utils.h"
 #include "unit_conversions.h"
