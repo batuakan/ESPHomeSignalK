@@ -1,5 +1,4 @@
 #ifdef USE_ESP32_FRAMEWORK_ESP_IDF
-#include "mdns.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_http_client.h"
@@ -103,28 +102,7 @@ bool SignalKEspIdf::connect(const std::string &path) {
   return isconnected_;
 }
 
-bool SignalKEspIdf::discovery() {
-  mdns_result_t *results = nullptr;
-  esp_err_t err = mdns_query_ptr("_signalk", "_http._tcp", 3000, 20, &results);
-
-  if (err) {
-    ESP_LOGE(TAG, "mDNS query failed: %s", esp_err_to_name(err));
-    return false;
-  }
-
-  if (!results) {
-    ESP_LOGW(TAG, "No SignalK server found");
-    return false;
-  }
-
-  for (mdns_result_t *r = results; r; r = r->next) {
-    ESP_LOGI(TAG, "Found service at %s:%u", r->hostname, r->port);
-    // Save hostname/port and use it to connect
-  }
-
-  mdns_query_results_free(results);
-  return true;
-}
+DiscoveryPoll SignalKEspIdf::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
 
 bool SignalKEspIdf::send(const std::string &msg) {
   if (!esp_websocket_client_is_connected(websocket_client)) {

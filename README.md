@@ -55,6 +55,21 @@ signalk:
   password: "yourpassword" #optional
 ```
 
+#### Finding the server automatically (mDNS)
+
+`host` is optional. If you leave it out, the component looks for the server on your network with mDNS (signalk-server announces itself as `_signalk-http._tcp`) and uses the address and port it finds, so `port` is ignored in that case.
+
+```yaml
+signalk:
+  username: "yourusername" #optional
+  password: "yourpassword" #optional
+```
+
+- The search is repeated every second until a server is found, the log shows `Found SignalK server ...`. It works on ESP32 (both frameworks, through ESPHome's `mdns` component, which is loaded automatically and must not be disabled) and for the `host:` build on your computer. Only IPv4 is used.
+- If several servers answer, the main server with the lowest address and port is used, and a warning lists how many were found. Set `host` to choose another one.
+- If the connection is lost, the same server is looked up again for 10 seconds, in case it has a new address; servers that are not the same one are ignored. After that the last known address is tried.
+- Discovery trusts your network: the login credentials or the access request go to whatever server answers, over plain HTTP. On a network you do not control, set `host` explicitly.
+
 ### ESPHome SignalK Components
 
 Signalk component provides the following types "core" components to send/fetch data to/from the signalk server:

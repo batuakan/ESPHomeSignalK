@@ -16,6 +16,7 @@
 #include "utils.h"
 #include "unit_conversions.h"
 #include "subscription_set.h"
+#include "server_discovery.h"
 
 namespace esphome {
 namespace signalk {
@@ -83,7 +84,10 @@ class SignalK : public PollingComponent {
   SignalKAccessState access_state() const;
 
   virtual bool connect(const std::string &path) = 0;
-  virtual bool discovery() = 0;
+  /// One non-blocking step of the mDNS search for a server; called again until it returns DONE.
+  /// The first call starts a search, DONE hands over everything found (possibly nothing) and the next
+  /// call starts a new search.
+  virtual DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) = 0;
   virtual bool send(const std::string &msg) = 0;
   virtual bool is_connected() const = 0;
 
@@ -100,10 +104,18 @@ class SignalK : public PollingComponent {
   void on_connected();
   void on_disconnected();
   void sync_subscriptions();
+  /// True when the server to talk to is known. With no `host` configured it is looked up with mDNS.
+  bool resolve_server();
   void sync_metadata();
   bool sync_metadata_of(SignalkSubscriber *subscriber);
 
   std::string host_;
+  // The host was found with mDNS (not configured), so it is looked up again after a disconnect.
+  bool host_discovered_{false};
+  ServerCandidate discovered_server_;  // what was found, so that only this server is accepted again
+  bool rediscovering_{false};
+  uint32_t rediscovery_started_at_{0};
+  uint32_t discovery_polls_without_result_{0};
   unsigned short port_;
   std::string device_name_;
   std::string user_name_;

@@ -4,7 +4,6 @@
 
 #include "esphome/components/json/json_util.h"
 #include <HTTPClient.h>
-#include <ESPmDNS.h>
 namespace esphome {
 namespace signalk {
 
@@ -49,33 +48,7 @@ bool SignalKArduino::send(const std::string &msg) {
   return true;
 }
 
-bool SignalKArduino::discovery() {
-  if (!MDNS.begin("esp32")) {  // start mDNS responder with some hostname
-    Serial.println("Error starting mDNS");
-    return false;
-  }
-
-  Serial.println("mDNS started, querying for _signalk._http._tcp services...");
-
-  int n = MDNS.queryService("_signalk", "_http");  // service, proto
-  if (n == 0) {
-    Serial.println("No SignalK server found");
-    return false;
-  }
-
-  for (int i = 0; i < n; i++) {
-    String host = MDNS.hostname(i);
-    int port = MDNS.port(i);
-
-    Serial.printf("Found SignalK service: %s:%d\n", host.c_str(), port);
-
-    // Save discovered host and port
-    host_ = host.c_str();
-    port_ = port;
-  }
-
-  return true;
-}
+DiscoveryPoll SignalKArduino::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
 
 HttpResponse SignalKArduino::post(const std::string &path, const std::string &msg) {
   HttpResponse resp;

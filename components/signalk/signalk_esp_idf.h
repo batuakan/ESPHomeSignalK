@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "signalk.h"
+#include "signalk_mdns_esp32.h"
 #include "esp_websocket_client.h"
 #include "esp_http_client.h"
 
@@ -18,7 +19,7 @@ class SignalKEspIdf : public SignalK {
   ~SignalKEspIdf() {}
 
   bool connect(const std::string &path) override;
-  bool discovery() override;
+  DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) override;
   bool send(const std::string &msg) override;
   bool is_connected() const override { return isconnected_; }
 
@@ -29,6 +30,7 @@ class SignalKEspIdf : public SignalK {
   void handle_websocket_event(int32_t event_id, esp_websocket_event_data_t *data);
 
  private:
+  SignalKMdnsEsp32 mdns_;
   esp_websocket_client_handle_t websocket_client;
   bool isconnected_;
   std::string auth_header_;
