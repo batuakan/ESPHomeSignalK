@@ -62,7 +62,7 @@ jobs:
 
       - name: Create secrets
         run: |
-          printf "wifi_ssid: test\nwifi_password: test\nsignalk_host: 127.0.0.1\n" > examples/secrets.yaml
+          printf "wifi_ssid: test\nwifi_password: test-password\nsignalk_host: 127.0.0.1\n" > examples/secrets.yaml
 
       - name: Validate config
         run: .venv/bin/esphome config ${{ matrix.config }}
