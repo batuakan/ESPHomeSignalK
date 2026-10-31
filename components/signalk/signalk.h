@@ -39,6 +39,8 @@ enum class SignalKAccessState { NO_TOKEN = 0, PENDING_APPROVAL = 1, DENIED = 2, 
 
 /// Called on the main loop with the value of a delta for a listened path.
 using SignalKListener = std::function<void(const std::string &path, JsonVariantConst value)>;
+/// Called on the main loop when a delta says that the metadata of a subscribed path changed.
+using SignalKMetaListener = std::function<void(const std::string &path)>;
 
 class SignalK : public PollingComponent {
  public:
@@ -74,6 +76,9 @@ class SignalK : public PollingComponent {
   /// Runtime listeners (main loop only). Returns an id for remove_listener().
   uint32_t add_listener(const std::string &path, SignalKListener callback);
   void remove_listener(uint32_t id);
+  /// A hint that metadata changed, for reading it again (GET .../<path>/meta): a meta delta may hold only
+  /// some keys, and the server's minPeriod throttle may drop it, so read again now and then as well.
+  void add_meta_listener(SignalKMetaListener callback) { meta_listeners_.push_back(std::move(callback)); }
 
   // Read-only state for other components (main loop only).
   const std::string &get_token() const { return token_; }
@@ -136,6 +141,7 @@ class SignalK : public PollingComponent {
     SignalKListener callback;
   };
   std::vector<Listener> listeners_;
+  std::vector<SignalKMetaListener> meta_listeners_;
   uint32_t next_listener_id_{1};
 
   std::mutex inbox_mutex_;

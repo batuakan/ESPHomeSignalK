@@ -37,6 +37,15 @@ inline void signalk_metadata_missing(JsonObjectConst ours, JsonObjectConst serve
   }
 }
 
+/// Calls `fn(path)` for each path whose metadata this update of a delta carries ("meta": [{path, value}]).
+template<typename Fn> inline void signalk_meta_paths(JsonObjectConst update, Fn fn) {
+  for (JsonObjectConst entry : update["meta"].as<JsonArrayConst>()) {
+    const char *path = entry["path"].as<const char *>();
+    if (path != nullptr)
+      fn(path);
+  }
+}
+
 class SignalKMetadata {
  public:
   SignalKMetadata() {
