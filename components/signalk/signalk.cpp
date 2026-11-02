@@ -487,6 +487,10 @@ void SignalK::on_message(const std::string &msg) {
     JsonArray arr = update["values"].as<JsonArray>();
     if (!arr.isNull())
       this->on_receive_delta(arr);
+    signalk_meta_paths(update, [this](const char *path) {
+      for (const auto &listener : meta_listeners_)
+        listener(path);
+    });
   }
   JsonArray put_arr = doc["put"].as<JsonArray>();
   if (!put_arr.isNull())

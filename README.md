@@ -306,6 +306,16 @@ All platforms (sensor, text_sensor, switch, number and text) support [meta data]
 
 ```
 
+#### Noticing meta data changes on the server
+
+A component can ask to be told when the meta data of a subscribed path changes, then read it again with `GET /signalk/v1/api/vessels/self/<path>/meta`:
+
+```cpp
+signalk->add_meta_listener([](const std::string &path) { /* read it again */ });
+```
+
+This is a hint and it can be missed. signalk-server sends meta deltas through the same `minPeriod` throttle as values, so with the default 200 ms about a third of them were dropped in tests, while a path's values were arriving. A meta delta can also hold only some keys. Read the meta data again now and then as well, and don't treat a delta as the full meta data.
+
 #### How device and server meta data are merged
 
 The meta data on the SignalK server can be newer than what is compiled into the device (for example edited in the admin UI), so **the server always wins**. On every (re)connect the device reads the current meta data of each path from the server and only sends the keys the server does not have yet. A key that exists on the server is never overwritten, even when its value differs from the one in the YAML (an empty string counts as not set, see below). If the server has no meta data for a path, everything from the YAML is sent. If the server cannot be reached, nothing is sent and the device retries after 10 seconds.

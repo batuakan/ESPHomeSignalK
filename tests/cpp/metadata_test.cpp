@@ -32,7 +32,22 @@ static std::string diff(const char *ours, const char *server) {
   return s;
 }
 
+/// The paths signalk_meta_paths() reports for an update, joined with ",".
+static std::string meta_paths(const char *update) {
+  JsonDocument doc;
+  deserializeJson(doc, update);
+  std::string out;
+  signalk_meta_paths(doc.as<JsonObjectConst>(), [&out](const char *path) { out += std::string(path) + ","; });
+  return out;
+}
+
 int main() {
+  // Which paths a delta's update says have new metadata.
+  CHECK(meta_paths(R"({"values":[{"path":"a.b","value":1}]})").empty());
+  CHECK(meta_paths(R"({"meta":[{"path":"a.b","value":{"zones":null}},{"path":"c","value":{}}]})") == "a.b,c,");
+  CHECK(meta_paths(R"({"meta":[{"value":{}},{"path":3},"x"]})").empty());
+  CHECK(meta_paths(R"({"meta":"nonsense"})").empty());
+
   // The server has nothing for the path (HTTP 404): everything is pushed.
   CHECK(diff(R"({"a":1,"b":"x"})", "null") == R"({"a":1,"b":"x"})");
   CHECK(diff(R"({"a":1,"b":"x"})", "{}") == R"({"a":1,"b":"x"})");
