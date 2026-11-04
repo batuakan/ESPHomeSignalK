@@ -86,6 +86,13 @@ class SignalK : public PollingComponent {
   unsigned short get_port() const { return port_; }
   std::string get_device_id() const { return get_uuid(); }
   bool is_stream_connected() const { return stream_connected_.load(); }
+  /// Deltas (messages with `updates`) processed since boot, and messages dropped because the inbox was full.
+  uint32_t deltas_received() const { return deltas_received_; }
+  uint32_t messages_dropped() const { return messages_dropped_; }
+  /// sk_millis() when the last delta was processed; 0 before the first.
+  uint32_t last_delta_ms() const { return last_delta_ms_; }
+  /// Paths subscribed to (YAML sensors and runtime listeners).
+  size_t subscribed_paths() const { return subscriptions_.size(); }
   SignalKAccessState access_state() const;
 
   virtual bool connect(const std::string &path) = 0;
@@ -148,6 +155,9 @@ class SignalK : public PollingComponent {
   std::deque<std::string> inbox_;
   size_t inbox_bytes_{0};
   uint32_t inbox_dropped_{0};
+  uint32_t deltas_received_{0};
+  uint32_t messages_dropped_{0};
+  uint32_t last_delta_ms_{0};
   std::atomic<bool> connected_event_{false};
   std::atomic<bool> disconnected_event_{false};
   std::atomic<bool> stream_connected_{false};

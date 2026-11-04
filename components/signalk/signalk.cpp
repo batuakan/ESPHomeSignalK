@@ -124,6 +124,7 @@ void SignalK::loop() {
     dropped = inbox_dropped_;
     inbox_dropped_ = 0;
   }
+  messages_dropped_ += dropped;
   if (dropped > 0) {
     ESP_LOGW(TAG, "Dropped %u queued messages (inbox full)", (unsigned) dropped);
   }
@@ -481,6 +482,10 @@ void SignalK::on_message(const std::string &msg) {
   if (error) {
     ESP_LOGW(TAG, "Ignoring unparsable message (%u bytes): %s", (unsigned) msg.size(), error.c_str());
     return;
+  }
+  if (doc["updates"].is<JsonArray>()) {
+    deltas_received_++;
+    last_delta_ms_ = sk_millis();
   }
   // A delta may carry several updates (e.g. one per source); process all of them.
   for (JsonObject update : doc["updates"].as<JsonArray>()) {
