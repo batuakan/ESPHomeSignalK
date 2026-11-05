@@ -17,11 +17,14 @@ class SignalKx86 : public SignalK {
   ~SignalKx86() {}
 
   bool connect(const std::string &path) override;
+  void disconnect() override;
   DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) override;
   bool send(const std::string &msg) override;
 
   void save_token() override;
   void load_token() override;
+  void save_server() override;
+  bool load_server(ServerCandidate &out) override;
   // void update() override {}
 
   // void connected();

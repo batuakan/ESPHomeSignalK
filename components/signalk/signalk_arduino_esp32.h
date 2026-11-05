@@ -15,6 +15,7 @@ class SignalKArduino : public SignalK {
   SignalKArduino() {}
   ~SignalKArduino();
   bool connect(const std::string &path) override;
+  void disconnect() override;
   DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) override;
   bool send(const std::string &msg) override;
   bool is_connected() const override { return isconnected_; }

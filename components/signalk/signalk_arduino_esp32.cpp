@@ -48,6 +48,12 @@ bool SignalKArduino::send(const std::string &msg) {
   return true;
 }
 
+void SignalKArduino::disconnect() {
+  webSocketClient_.close();
+  isconnected_ = false;
+  signal_disconnected();
+}
+
 DiscoveryPoll SignalKArduino::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
 
 HttpResponse SignalKArduino::post(const std::string &path, const std::string &msg) {

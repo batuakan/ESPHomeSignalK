@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,6 +34,13 @@ enum class DiscoveryPoll {
   DONE,     ///< search finished, the results (possibly none) were filled in
 };
 
+/// True when `c` can be connected to and does not identify as something else than SignalK.
+inline bool usable_server(const ServerCandidate &c) {
+  if (c.port == 0 || c.connect_host() == ".local")
+    return false;
+  return c.swname.empty() || c.swname.find("signalk") != std::string::npos;
+}
+
 /// Chooses the server to use when several answered. Servers that identify as something else than
 /// SignalK are skipped, the main server is preferred, and ties are broken by address and port so
 /// that the same server is chosen on every boot. Returns nullptr when there is no usable server.
@@ -40,9 +48,7 @@ inline const ServerCandidate *pick_server(const std::vector<ServerCandidate> &fo
   const ServerCandidate *best = nullptr;
   auto is_main = [](const ServerCandidate &c) { return c.roles.find("main") != std::string::npos; };
   for (const auto &c : found) {
-    if (c.port == 0 || c.connect_host() == ".local")
-      continue;
-    if (!c.swname.empty() && c.swname.find("signalk") == std::string::npos)
+    if (!usable_server(c))
       continue;
     if (best == nullptr) {
       best = &c;
@@ -85,6 +91,60 @@ inline void add_unique(std::vector<ServerCandidate> &found, const ServerCandidat
     return;
   }
   found.push_back(candidate);
+}
+
+/// Longest saved server record (encode_saved_server), without the terminating 0.
+static const size_t SAVED_SERVER_MAX = 200;
+
+/// The server a device is bound to, as saved in flash next to its token: a version line, then the host
+/// name, address, port and vessel id, one per line. The software name and roles are not kept.
+inline std::string encode_saved_server(const ServerCandidate &s) {
+  char port[6];
+  snprintf(port, sizeof(port), "%u", static_cast<unsigned>(s.port));
+  std::string out = "v1\n" + s.hostname + "\n" + s.address + "\n" + port + "\n" + s.self;
+  return out.size() <= SAVED_SERVER_MAX ? out : std::string();
+}
+
+/// Reads a record written by encode_saved_server. Anything else (another version, a missing or extra
+/// field, a control character, a port out of range, nothing to connect to) is refused and `out` is left
+/// as it was: flash can hold a record from other firmware, or a damaged one.
+inline bool decode_saved_server(const std::string &text, ServerCandidate &out) {
+  if (text.size() > SAVED_SERVER_MAX)
+    return false;
+  std::vector<std::string> fields;
+  size_t start = 0;
+  while (true) {
+    size_t end = text.find('\n', start);
+    fields.push_back(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+    if (end == std::string::npos)
+      break;
+    start = end + 1;
+  }
+  if (fields.size() != 5 || fields[0] != "v1")
+    return false;
+  for (const auto &f : fields) {
+    for (char ch : f) {
+      if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f)
+        return false;
+    }
+  }
+  const std::string &port = fields[3];
+  if (port.empty() || port.size() > 5 || port.find_first_not_of("0123456789") != std::string::npos)
+    return false;
+  unsigned long port_value = std::stoul(port);
+  if (port_value == 0 || port_value > 65535)
+    return false;
+  if (fields[2].find_first_not_of("0123456789.") != std::string::npos || fields[2].size() > 15)
+    return false;
+  ServerCandidate s;
+  s.hostname = fields[1];
+  s.address = fields[2];
+  s.port = static_cast<uint16_t>(port_value);
+  s.self = fields[4];
+  if (s.hostname.empty() && s.address.empty())
+    return false;
+  out = s;
+  return true;
 }
 
 }  // namespace signalk

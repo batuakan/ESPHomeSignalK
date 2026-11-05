@@ -19,6 +19,7 @@ class SignalKEspIdf : public SignalK {
   ~SignalKEspIdf() {}
 
   bool connect(const std::string &path) override;
+  void disconnect() override;
   DiscoveryPoll poll_discovery(std::vector<ServerCandidate> &found) override;
   bool send(const std::string &msg) override;
   bool is_connected() const override { return isconnected_; }
@@ -31,7 +32,7 @@ class SignalKEspIdf : public SignalK {
 
  private:
   SignalKMdnsEsp32 mdns_;
-  esp_websocket_client_handle_t websocket_client;
+  esp_websocket_client_handle_t websocket_client{nullptr};
   bool isconnected_;
   std::string auth_header_;
 
