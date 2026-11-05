@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -98,7 +99,9 @@ static const size_t SAVED_SERVER_MAX = 200;
 /// The server a device is bound to, as saved in flash next to its token: a version line, then the host
 /// name, address, port and vessel id, one per line. The software name and roles are not kept.
 inline std::string encode_saved_server(const ServerCandidate &s) {
-  std::string out = "v1\n" + s.hostname + "\n" + s.address + "\n" + std::to_string(s.port) + "\n" + s.self;
+  char port[6];
+  snprintf(port, sizeof(port), "%u", static_cast<unsigned>(s.port));
+  std::string out = "v1\n" + s.hostname + "\n" + s.address + "\n" + port + "\n" + s.self;
   return out.size() <= SAVED_SERVER_MAX ? out : std::string();
 }
 
