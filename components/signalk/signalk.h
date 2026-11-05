@@ -57,6 +57,9 @@ class SignalK : public PollingComponent {
   void validate_token();
   virtual void save_token();
   virtual void load_token();
+  /// The server the device is bound to (found with mDNS or chosen), kept next to the token.
+  virtual void save_server();
+  virtual bool load_server(ServerCandidate &out);
 
   void set_device_name(std::string device_name) { device_name_ = device_name; }
   void set_host(std::string host) { host_ = host; }
@@ -95,7 +98,26 @@ class SignalK : public PollingComponent {
   size_t subscribed_paths() const { return subscriptions_.size(); }
   SignalKAccessState access_state() const;
 
+  // Choosing the server (main loop only). With `host` in the configuration there is nothing to choose and
+  // these do nothing.
+  /// True when the server is set in the configuration rather than found with mDNS.
+  bool server_configured() const { return host_configured_; }
+  /// The server in use (empty until one is found), as found with mDNS.
+  const ServerCandidate &current_server() const { return discovered_server_; }
+  /// Starts a new mDNS search; servers_found() holds its result once scanning() is false.
+  void scan_servers() { scan_requested_ = true; }
+  bool scanning() const { return scan_requested_; }
+  /// The usable servers the last finished search answered with.
+  const std::vector<ServerCandidate> &servers_found() const { return servers_found_; }
+  /// Uses `server` from now on, also after a restart. Another server than the current one drops the token,
+  /// so the device asks that server for access.
+  void choose_server(const ServerCandidate &server);
+  /// Drops the token and the bound server, and looks for a server again.
+  void forget_server();
+
   virtual bool connect(const std::string &path) = 0;
+  /// Closes the stream; the transport reports the disconnect as usual.
+  virtual void disconnect() = 0;
   /// One non-blocking step of the mDNS search for a server; called again until it returns DONE.
   /// The first call starts a search, DONE hands over everything found (possibly nothing) and the next
   /// call starts a new search.
@@ -118,6 +140,12 @@ class SignalK : public PollingComponent {
   void sync_subscriptions();
   /// True when the server to talk to is known. With no `host` configured it is looked up with mDNS.
   bool resolve_server();
+  /// One step of a search asked for with scan_servers() while the server is known.
+  void poll_scan();
+  /// Commits to `server`: it is used and saved, so that only it is accepted after a restart.
+  void bind_server(const ServerCandidate &server);
+  /// An HTTP request got no response: a found server may have moved, look for it again.
+  void server_unreachable();
   void sync_metadata();
   bool sync_metadata_of(SignalkSubscriber *subscriber);
 
@@ -128,6 +156,9 @@ class SignalK : public PollingComponent {
   bool rediscovering_{false};
   uint32_t rediscovery_started_at_{0};
   uint32_t discovery_polls_without_result_{0};
+  bool host_configured_{false};
+  bool scan_requested_{false};
+  std::vector<ServerCandidate> servers_found_;
   unsigned short port_;
   std::string device_name_;
   std::string user_name_;

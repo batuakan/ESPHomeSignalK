@@ -52,6 +52,12 @@ bool SignalKx86::connect(const std::string &path) {
   ;
 }
 
+void SignalKx86::disconnect() {
+  websocket_client_.stop();
+  isconnected_ = false;
+  this->signal_disconnected();
+}
+
 DiscoveryPoll SignalKx86::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
 
 bool SignalKx86::send(const std::string &msg) {
@@ -149,6 +155,28 @@ void SignalKx86::load_token() {
   } else {
     ESP_LOGW(TAG, "Token file was empty");
   }
+}
+
+// The bound server, in a file next to the token one.
+static const char *const SERVER_FILE = "signalk_server";
+
+void SignalKx86::save_server() {
+  std::ofstream file(SERVER_FILE, std::ios::out | std::ios::trunc);
+  if (!file.is_open()) {
+    ESP_LOGE(TAG, "Failed to open %s for writing", SERVER_FILE);
+    return;
+  }
+  if (host_discovered_)
+    file << encode_saved_server(discovered_server_);
+}
+
+bool SignalKx86::load_server(ServerCandidate &out) {
+  std::ifstream file(SERVER_FILE, std::ios::in);
+  if (!file.is_open())
+    return false;
+  char buffer[SAVED_SERVER_MAX + 1] = {0};
+  file.read(buffer, SAVED_SERVER_MAX);
+  return decode_saved_server(std::string(buffer, static_cast<size_t>(file.gcount())), out);
 }
 
 }  // namespace signalk

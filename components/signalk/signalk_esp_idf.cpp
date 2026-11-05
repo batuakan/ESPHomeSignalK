@@ -102,6 +102,16 @@ bool SignalKEspIdf::connect(const std::string &path) {
   return isconnected_;
 }
 
+void SignalKEspIdf::disconnect() {
+  if (websocket_client == nullptr)
+    return;
+  esp_websocket_client_stop(websocket_client);
+  esp_websocket_client_destroy(websocket_client);
+  websocket_client = nullptr;
+  isconnected_ = false;
+  this->signal_disconnected();
+}
+
 DiscoveryPoll SignalKEspIdf::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
 
 bool SignalKEspIdf::send(const std::string &msg) {

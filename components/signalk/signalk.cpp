@@ -4,6 +4,7 @@
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include <algorithm>
+#include <iterator>
 #include <regex>
 // #include "esphome/components/wifi/wifi_component.h"
 
@@ -191,6 +192,21 @@ void SignalK::sync_subscriptions() {
 void SignalK::setup() {
   ESP_LOGD(TAG, "Setup");
 
+  host_configured_ = !host_.empty();
+  ServerCandidate saved;
+  if (!host_configured_ && load_server(saved)) {
+    // Bound to a server: only it is accepted when it is looked up, the token (or the login) must not go to
+    // another server that happens to be on the network. Found again like after a disconnect, with the
+    // saved address as the fallback.
+    host_ = saved.connect_host();
+    port_ = saved.port;
+    discovered_server_ = saved;
+    host_discovered_ = true;
+    rediscovering_ = true;
+    rediscovery_started_at_ = sk_millis();
+    ESP_LOGI(TAG, "Bound to SignalK server %s:%u", host_.c_str(), port_);
+  }
+
   if (!this->user_name_.empty() && !this->user_password_.empty()) {
     prefered_access_method_ = SignalKPreferedAccessMethod::LOGIN;
     ESP_LOGD(TAG, "Using LOGIN as prefered access method");
@@ -218,6 +234,9 @@ bool SignalK::resolve_server() {
   std::vector<ServerCandidate> found;
   if (poll_discovery(found) == DiscoveryPoll::PENDING)
     return false;
+  servers_found_.clear();
+  std::copy_if(found.begin(), found.end(), std::back_inserter(servers_found_), usable_server);
+  scan_requested_ = false;
 
   if (rediscovering_) {
     // Only come back to the server we had: credentials and the access token must not go to a different
@@ -238,18 +257,83 @@ bool SignalK::resolve_server() {
   } else {
     ESP_LOGI(TAG, "Found SignalK server %s:%u with mDNS", server->connect_host().c_str(), server->port);
   }
-  host_ = server->connect_host();
-  port_ = server->port;
-  discovered_server_ = *server;
+  bind_server(*server);
+  return true;
+}
+
+void SignalK::bind_server(const ServerCandidate &server) {
+  // Saved when it changes (a first server, another address), not on every reconnect.
+  const bool changed = !host_discovered_ || encode_saved_server(server) != encode_saved_server(discovered_server_);
+  host_ = server.connect_host();
+  port_ = server.port;
+  discovered_server_ = server;
   host_discovered_ = true;
   rediscovering_ = false;
   discovery_polls_without_result_ = 0;
-  return true;
+  if (changed)
+    save_server();
+}
+
+void SignalK::poll_scan() {
+  if (!scan_requested_)
+    return;
+  if (host_configured_) {
+    scan_requested_ = false;
+    return;
+  }
+  std::vector<ServerCandidate> found;
+  if (poll_discovery(found) == DiscoveryPoll::PENDING)
+    return;
+  servers_found_.clear();
+  std::copy_if(found.begin(), found.end(), std::back_inserter(servers_found_), usable_server);
+  scan_requested_ = false;
+}
+
+void SignalK::choose_server(const ServerCandidate &server) {
+  if (host_configured_ || !usable_server(server))
+    return;
+  if (host_discovered_ && same_server(server, discovered_server_)) {
+    // The same server, the token stays. Reconnect when it is somewhere else now.
+    const bool moved = server.connect_host() != host_ || server.port != port_;
+    bind_server(server);
+    if (moved)
+      disconnect();
+    return;
+  }
+  ESP_LOGI(TAG, "Switching to SignalK server %s:%u", server.connect_host().c_str(), server.port);
+  forget_server();
+  bind_server(server);
+}
+
+void SignalK::forget_server() {
+  if (host_configured_)
+    return;
+  ESP_LOGI(TAG, "Forgetting the SignalK server and its token");
+  disconnect();
+  token_.clear();
+  save_token();
+  discovered_server_ = ServerCandidate();
+  host_.clear();
+  host_discovered_ = false;
+  rediscovering_ = false;
+  save_server();
+  request_access_href_.clear();
+  request_access_state_ = SignalKRequestAccessState::UNKNOWN;
+  login_state_ = SignalKLoginState::UNKNOWN;
+}
+
+void SignalK::server_unreachable() {
+  if (host_discovered_ && !rediscovering_) {
+    ESP_LOGW(TAG, "SignalK server %s:%u not reachable, looking for it again", host_.c_str(), port_);
+    rediscovering_ = true;
+    rediscovery_started_at_ = sk_millis();
+  }
 }
 
 void SignalK::update() {
   if (!this->resolve_server())
     return;
+  this->poll_scan();
   if (prefered_access_method_ == SignalKPreferedAccessMethod::REQUEST_ACCESS) {
     if (this->request_access_state_ == SignalKRequestAccessState::HASTOKEN)
       this->validate_token();
@@ -319,6 +403,10 @@ void SignalK::login() {
   ESP_LOGD(TAG, "Trying to login as %s", this->user_name_.c_str());
   auto response = post("/signalk/v1/auth/login", msg);
   ESP_LOGD(TAG, "Login request response: HTTP %d", response.status_code);  // body holds the token
+  if (response.status_code <= 0) {
+    server_unreachable();
+    return;
+  }
 
   JsonDocument resp_doc;
   DeserializationError error = deserializeJson(resp_doc, response.body);
@@ -361,6 +449,10 @@ void SignalK::send_access_request() {
   ESP_LOGD(TAG, "Trying to request access: %s", msg.c_str());
   auto response = post("/signalk/v1/access/requests", msg);
   ESP_LOGD(TAG, "Access request response: %s", response.body.c_str());
+  if (response.status_code <= 0) {
+    server_unreachable();
+    return;
+  }
 
   JsonDocument resp_doc;
   DeserializationError error = deserializeJson(resp_doc, response.body);
@@ -396,6 +488,10 @@ void SignalK::poll_access_request() {
 
   auto response = get(request_access_href_);
   ESP_LOGD(TAG, "Access request status response: HTTP %d", response.status_code);  // body may hold the token
+  if (response.status_code <= 0) {
+    server_unreachable();
+    return;
+  }
 
   JsonDocument resp_doc;
   DeserializationError error = deserializeJson(resp_doc, response.body);
@@ -440,6 +536,8 @@ void SignalK::validate_token() {
     save_token();
     request_access_state_ = SignalKRequestAccessState::UNKNOWN;
     ESP_LOGE(TAG, "Token validation failed: HTTP %d", response.status_code);
+  } else if (response.status_code <= 0) {
+    server_unreachable();
   } else {
     ESP_LOGW(TAG, "Unexpected response during token validation: HTTP %d", response.status_code);
   }
@@ -473,6 +571,27 @@ void SignalK::load_token() {
   } else {
     ESP_LOGW(TAG, "No token stored in flash");
   }
+}
+
+// Next to the token (10000). An empty record means no server is bound.
+static const uint32_t SERVER_PREF_KEY = 10001;
+
+void SignalK::save_server() {
+  char buffer[SAVED_SERVER_MAX + 1] = {0};
+  const std::string record = host_discovered_ ? encode_saved_server(discovered_server_) : std::string();
+  memcpy(buffer, record.c_str(), record.size());
+  auto pref = global_preferences->make_preference<char[SAVED_SERVER_MAX + 1]>(SERVER_PREF_KEY, true);
+  if (!pref.save(&buffer))
+    ESP_LOGE(TAG, "Failed to save the SignalK server");
+}
+
+bool SignalK::load_server(ServerCandidate &out) {
+  char buffer[SAVED_SERVER_MAX + 1] = {0};
+  auto pref = global_preferences->make_preference<char[SAVED_SERVER_MAX + 1]>(SERVER_PREF_KEY, true);
+  if (!pref.load(&buffer))
+    return false;
+  buffer[SAVED_SERVER_MAX] = '\0';
+  return decode_saved_server(std::string(buffer), out);
 }
 
 void SignalK::on_message(const std::string &msg) {
