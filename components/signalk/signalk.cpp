@@ -27,6 +27,12 @@ static const uint32_t REDISCOVERY_TIMEOUT_MS = 10000;
 static const uint32_t DISCOVERY_LOG_EVERY_POLLS = 30;
 // Wait this long before asking the server for metadata again after a failed request.
 static const uint32_t METADATA_RETRY_MS = 10000;
+// Access requests are sent at most this often, and much less often while the server refuses them (each
+// refusal is kept by the server for an hour).
+static const uint32_t ACCESS_REQUEST_INTERVAL_MS = 2000;
+static const uint32_t ACCESS_REQUEST_REFUSED_RETRY_MS = 30000;
+// A pending request is polled every second; this many replies in a row that aren't understood drop it.
+static const uint32_t ACCESS_POLL_UNREADABLE_MAX = 30;
 
 /// Logs only the first characters of a secret.
 static std::string redact(const std::string &secret) {
@@ -219,6 +225,10 @@ void SignalK::setup() {
 
   if (!token_.empty()) {
     request_access_state_ = SignalKRequestAccessState::HASTOKEN;
+  } else if (load_access_href()) {
+    // Restarted while waiting for approval: ask that request again (a new one would be refused).
+    request_access_state_ = SignalKRequestAccessState::PENDING;
+    ESP_LOGI(TAG, "Waiting for the access request %s", request_access_href_.c_str());
   }
 }
 
@@ -318,6 +328,7 @@ void SignalK::forget_server() {
   rediscovering_ = false;
   save_server();
   request_access_href_.clear();
+  save_access_href();
   request_access_state_ = SignalKRequestAccessState::UNKNOWN;
   login_state_ = SignalKLoginState::UNKNOWN;
 }
@@ -431,13 +442,12 @@ void SignalK::send_access_request() {
     request_access_state_ = SignalKRequestAccessState::HASTOKEN;
     return;
   }
-  // Throttle login requests to once every 2 seconds
-  static uint32_t last_request_attempt = 0;
+  // At most one request every 2 seconds, longer after a refusal (see below).
   uint32_t now = sk_millis();
-  if (now - last_request_attempt < 2000) {
+  if (static_cast<int32_t>(now - next_access_request_at_) < 0) {
     return;
   }
-  last_request_attempt = now;
+  next_access_request_at_ = now + ACCESS_REQUEST_INTERVAL_MS;
   JsonDocument doc;
   doc["clientId"] = get_uuid();
   doc["description"] = "ESPHome device: " + App.get_name();
@@ -454,27 +464,46 @@ void SignalK::send_access_request() {
     return;
   }
 
-  JsonDocument resp_doc;
-  DeserializationError error = deserializeJson(resp_doc, response.body);
-  if (error) {
-    ESP_LOGE(TAG, "Failed to parse access request response: %s", error.c_str());
-    return;
-  } else if (resp_doc["state"] == "PENDING") {
-    request_access_state_ = SignalKRequestAccessState::PENDING;
-    request_access_href_ = resp_doc["href"] | "";
-    ESP_LOGW(TAG, "Access request is pending approval");
-  } else if (resp_doc["state"] == "COMPLETED") {
-    if (resp_doc["statusCode"] == 400) {
-      request_access_href_ = resp_doc["href"] | "";
-      if (!request_access_href_.empty()) {
-        request_access_state_ = SignalKRequestAccessState::PENDING;
-        return;
-      }
-      request_access_state_ = SignalKRequestAccessState::DENIED;
-      ESP_LOGE(TAG, "Access request denied");
-      return;
-    }
+  const AccessReplyInfo reply = parse_access_reply(response.status_code, response.body);
+  switch (reply.reply) {
+    case AccessReply::PENDING:
+      request_access_state_ = SignalKRequestAccessState::PENDING;
+      request_access_href_ = reply.href;
+      access_poll_unreadable_ = 0;
+      save_access_href();  // a restart while waiting asks this request again, not a new one
+      ESP_LOGW(TAG, "Access request is pending approval");
+      break;
+    case AccessReply::APPROVED:
+    case AccessReply::DENIED:
+      access_request_decided(reply);
+      break;
+    case AccessReply::REFUSED:
+      // Usually an earlier request of this device is still pending (from before a restart). Its link is
+      // unknown, so the refusal's own link never gets a token: try again later, a new request is taken once
+      // the earlier one is approved, denied or forgotten by the server.
+      next_access_request_at_ = now + ACCESS_REQUEST_REFUSED_RETRY_MS;
+      ESP_LOGW(TAG, "Access request refused: %s. Approve or deny the earlier request in the SignalK admin UI",
+               reply.message.empty() ? "no reason given" : reply.message.c_str());
+      break;
+    case AccessReply::GONE:
+    case AccessReply::UNREADABLE:
+      ESP_LOGE(TAG, "Unexpected access request response: HTTP %d", response.status_code);
+      break;
   }
+}
+
+void SignalK::access_request_decided(const AccessReplyInfo &reply) {
+  request_access_href_.clear();
+  save_access_href();
+  if (reply.reply == AccessReply::DENIED) {
+    request_access_state_ = SignalKRequestAccessState::DENIED;
+    ESP_LOGE(TAG, "Access request denied");
+    return;
+  }
+  request_access_state_ = SignalKRequestAccessState::COMPLETED;
+  token_ = reply.token;
+  save_token();
+  ESP_LOGI(TAG, "Access request approved, token %s", redact(token_).c_str());
 }
 
 void SignalK::poll_access_request() {
@@ -493,28 +522,32 @@ void SignalK::poll_access_request() {
     return;
   }
 
-  JsonDocument resp_doc;
-  DeserializationError error = deserializeJson(resp_doc, response.body);
-  if (error) {
-    ESP_LOGE(TAG, "Failed to parse access request status response: %s", error.c_str());
-    return;
-  }
-  std::string state = resp_doc["state"] | "UNKNOWN";
-  if (state == "COMPLETED") {
-    if (resp_doc["accessRequest"]["permission"] == "DENIED") {
-      request_access_state_ = SignalKRequestAccessState::DENIED;
-      ESP_LOGE(TAG, "Access request denied");
-      return;
-    }
-
-    if (resp_doc["accessRequest"]["permission"] == "APPROVED") {
-      request_access_state_ = SignalKRequestAccessState::COMPLETED;
-      token_ = resp_doc["accessRequest"]["token"] | "";
-      if (!token_.empty()) {
-        save_token();
-      }
-      ESP_LOGI(TAG, "Access request approved, token %s", redact(token_).c_str());
-    }
+  AccessReplyInfo reply = parse_access_reply(response.status_code, response.body);
+  // A link that only ever gives replies we don't understand is as good as gone.
+  if (reply.reply != AccessReply::UNREADABLE)
+    access_poll_unreadable_ = 0;
+  else if (++access_poll_unreadable_ >= ACCESS_POLL_UNREADABLE_MAX)
+    reply.reply = AccessReply::GONE;
+  switch (reply.reply) {
+    case AccessReply::PENDING:
+      break;
+    case AccessReply::APPROVED:
+    case AccessReply::DENIED:
+      access_request_decided(reply);
+      break;
+    case AccessReply::REFUSED:
+    case AccessReply::GONE:
+      // A link that never gets a token (an older firmware polled refusals), or one the server forgot: ask anew.
+      ESP_LOGW(TAG, "Access request %s, sending a new one",
+               reply.reply == AccessReply::GONE ? "is no longer known to the server" : "was refused");
+      access_poll_unreadable_ = 0;
+      request_access_href_.clear();
+      save_access_href();
+      request_access_state_ = SignalKRequestAccessState::UNKNOWN;
+      break;
+    case AccessReply::UNREADABLE:
+      ESP_LOGW(TAG, "Unexpected access request status response: HTTP %d", response.status_code);
+      break;
   }
 }
 
@@ -549,7 +582,9 @@ void SignalK::save_token() {
   uint32_t hash = fnv1_hash("signalk" + this->host_);
   auto pref = global_preferences->make_preference<char[TOKEN_MAX_LENGTH]>(10000, true);
   memcpy(token_buffer, token_.c_str(), std::min(token_.size(), sizeof(token_buffer) - 1));
-  if (pref.save(&token_buffer)) {
+  // Written now, like the access request: the request is gone once approved, so a token lost to a restart
+  // would need a new approval.
+  if (pref.save(&token_buffer) && global_preferences->sync()) {
     ESP_LOGI(TAG, "Saved token to preferences: %s", redact(token_).c_str());
   } else {
     ESP_LOGE(TAG, "Failed to save token");
@@ -592,6 +627,33 @@ bool SignalK::load_server(ServerCandidate &out) {
     return false;
   buffer[SAVED_SERVER_MAX] = '\0';
   return decode_saved_server(std::string(buffer), out);
+}
+
+// The link of the access request waiting for approval, so a restart asks it again. Empty when none is.
+static const uint32_t ACCESS_HREF_PREF_KEY = 10002;
+
+void SignalK::save_access_href() {
+  char buffer[ACCESS_REQUEST_HREF_MAX + 1] = {0};
+  if (usable_access_href(request_access_href_))
+    memcpy(buffer, request_access_href_.c_str(), request_access_href_.size());
+  auto pref = global_preferences->make_preference<char[ACCESS_REQUEST_HREF_MAX + 1]>(ACCESS_HREF_PREF_KEY, true);
+  // Written now rather than at the next flash write interval: a restart soon after must find it. It changes
+  // once per request.
+  if (!pref.save(&buffer) || !global_preferences->sync())
+    ESP_LOGE(TAG, "Failed to save the access request");
+}
+
+bool SignalK::load_access_href() {
+  char buffer[ACCESS_REQUEST_HREF_MAX + 1] = {0};
+  auto pref = global_preferences->make_preference<char[ACCESS_REQUEST_HREF_MAX + 1]>(ACCESS_HREF_PREF_KEY, true);
+  if (!pref.load(&buffer))
+    return false;
+  buffer[ACCESS_REQUEST_HREF_MAX] = '\0';
+  const std::string href(buffer);
+  if (!usable_access_href(href))
+    return false;
+  request_access_href_ = href;
+  return true;
 }
 
 void SignalK::on_message(const std::string &msg) {

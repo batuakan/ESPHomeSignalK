@@ -55,6 +55,14 @@ signalk:
   password: "yourpassword" #optional
 ```
 
+#### Access requests
+
+Without a username and password the device asks the server for access (read/write) and waits until you approve it in the SignalK admin UI under *Security → Access Requests*. The token it then receives is kept in flash.
+
+- The request is kept in flash too, so a device that restarts while waiting keeps asking for the same request. SignalK refuses a second request from a device while its first one is pending.
+- If the server has forgotten the request (it keeps them for an hour, and not across a restart), the device sends a new one. Approve the newest entry.
+- If a request is refused anyway (for example after updating from a version that did not keep it), the log says `Access request refused` and the device tries again every 30 seconds. Approve or deny the earlier request: the next try is then accepted and shows up as a new request to approve.
+
 #### Finding the server automatically (mDNS)
 
 `host` is optional. If you leave it out, the component looks for the server on your network with mDNS (signalk-server announces itself as `_signalk-http._tcp`) and uses the address and port it finds, so `port` is ignored in that case.
