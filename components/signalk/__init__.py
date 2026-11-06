@@ -178,6 +178,8 @@ PutRequestAction = signalk_ns.class_("PutRequestAction")
 PutRequestFloat = PutRequestAction.template(cg.float_)
 PutRequestBool = PutRequestAction.template(cg.bool_)
 
+ForgetServerAction = signalk_ns.class_("ForgetServerAction", automation.Action)
+
 PutRequestString = PutRequestAction.template(cg.std_string)
 
 # std::variant<float, std::string, bool>, see signalk.h
@@ -319,6 +321,17 @@ async def put_request_to_code(config, action_id, template_arg, args):
         templ = await delta_value_templatable(config[CONF_VALUE], args)
         cg.add(var.set_value(templ))
     return var
+
+
+FORGET_SERVER_SCHEMA = automation.maybe_simple_id({cv.GenerateID(): cv.use_id(signalk)})
+
+
+# Drops the server found with mDNS (or chosen) and its token; the device looks for a server again and asks
+# it for access. Does nothing when `host` is set.
+@automation.register_action("signalk.forget_server", ForgetServerAction, FORGET_SERVER_SCHEMA, synchronous=True)
+async def forget_server_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(action_id, template_arg, parent)
 
 
 @automation.register_action("signalk.publish_delta", PublishDeltaAction, PUBLISH_DELTA_SCHEMA, synchronous=False)

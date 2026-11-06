@@ -96,3 +96,10 @@ text:
     meta:
       longName: "Navigation state"
     mode: text
+
+button:
+  # A node without a display: forget the server (with host set, as here, it does nothing).
+  - platform: template
+    name: "Forget SignalK server"
+    on_press:
+      - signalk.forget_server: signalk_main

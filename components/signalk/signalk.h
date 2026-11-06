@@ -58,11 +58,12 @@ class SignalK : public PollingComponent {
   /// The admin approved (token) or denied the access request.
   void access_request_decided(const AccessReplyInfo &reply);
   void validate_token();
-  virtual void save_token();
-  virtual void load_token();
+  /// The token, kept in an ESPHome preference (on the host build too: ESPHOME_PREFDIR).
+  void save_token();
+  void load_token();
   /// The server the device is bound to (found with mDNS or chosen), kept next to the token.
-  virtual void save_server();
-  virtual bool load_server(ServerCandidate &out);
+  void save_server();
+  bool load_server(ServerCandidate &out);
   /// The link of the access request waiting for approval, kept so that a restart asks it again.
   void save_access_href();
   bool load_access_href();
@@ -293,6 +294,17 @@ template<typename... Ts> class PutRequestAction : public Action<Ts...> {
   SignalK *parent_;
   std::string path_;
   Unit unit_;
+};
+
+/// signalk.forget_server: drops the bound server and its token (SignalK::forget_server). Does nothing when
+/// `host` is set.
+template<typename... Ts> class ForgetServerAction : public Action<Ts...> {
+ public:
+  explicit ForgetServerAction(SignalK *parent) : parent_(parent) {}
+  void play(const Ts &...x) override { this->parent_->forget_server(); }
+
+ protected:
+  SignalK *parent_;
 };
 
 }  // namespace signalk

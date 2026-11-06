@@ -3,7 +3,6 @@
 #include "signalk_x86.h"
 #include "esphome/core/log.h"
 #include <cstdio>
-#include <fstream>
 #include <ixwebsocket/IXHttpClient.h>
 
 namespace esphome {
@@ -114,69 +113,6 @@ HttpResponse SignalKx86::get(const std::string &path) {
   res.status_code = response->statusCode;
   res.body = response->body;
   return res;
-}
-
-void SignalKx86::save_token() {
-  constexpr size_t TOKEN_MAX_LENGTH = 256;
-  const char *filename = "token";  // or absolute path if you prefer
-
-  std::ofstream file(filename, std::ios::out | std::ios::trunc);
-  if (!file.is_open()) {
-    ESP_LOGE(TAG, "Failed to open %s for writing", filename);
-    return;
-  }
-
-  // Clamp to max length - 1 to leave room for null terminator if needed
-  size_t len = std::min(token_.size(), TOKEN_MAX_LENGTH - 1);
-  file.write(token_.c_str(), len);
-  file.close();
-
-  ESP_LOGI(TAG, "Saved token to file '%s'", filename);
-}
-
-void SignalKx86::load_token() {
-  constexpr size_t TOKEN_MAX_LENGTH = 256;
-  const char *filename = "token";
-
-  std::ifstream file(filename, std::ios::in);
-  if (!file.is_open()) {
-    ESP_LOGW(TAG, "No token file found (%s)", filename);
-    return;
-  }
-
-  char buffer[TOKEN_MAX_LENGTH] = {0};
-  file.read(buffer, TOKEN_MAX_LENGTH - 1);
-  file.close();
-
-  token_ = std::string(buffer);
-  if (!token_.empty()) {
-    request_access_state_ = SignalKRequestAccessState::HASTOKEN;
-    ESP_LOGI(TAG, "Loaded token from file '%s'", filename);
-  } else {
-    ESP_LOGW(TAG, "Token file was empty");
-  }
-}
-
-// The bound server, in a file next to the token one.
-static const char *const SERVER_FILE = "signalk_server";
-
-void SignalKx86::save_server() {
-  std::ofstream file(SERVER_FILE, std::ios::out | std::ios::trunc);
-  if (!file.is_open()) {
-    ESP_LOGE(TAG, "Failed to open %s for writing", SERVER_FILE);
-    return;
-  }
-  if (host_discovered_)
-    file << encode_saved_server(discovered_server_);
-}
-
-bool SignalKx86::load_server(ServerCandidate &out) {
-  std::ifstream file(SERVER_FILE, std::ios::in);
-  if (!file.is_open())
-    return false;
-  char buffer[SAVED_SERVER_MAX + 1] = {0};
-  file.read(buffer, SAVED_SERVER_MAX);
-  return decode_saved_server(std::string(buffer, static_cast<size_t>(file.gcount())), out);
 }
 
 }  // namespace signalk
