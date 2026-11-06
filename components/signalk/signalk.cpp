@@ -273,7 +273,10 @@ bool SignalK::resolve_server() {
 
 void SignalK::bind_server(const ServerCandidate &server) {
   // Saved when it changes (a first server, another address), not on every reconnect.
-  const bool changed = !host_discovered_ || encode_saved_server(server) != encode_saved_server(discovered_server_);
+  SavedServer now{}, before{};  // a server too long to keep stays an empty record
+  to_saved_server(server, now);
+  to_saved_server(discovered_server_, before);
+  const bool changed = !host_discovered_ || !same_saved_server(now, before);
   host_ = server.connect_host();
   port_ = server.port;
   discovered_server_ = server;
@@ -576,10 +579,16 @@ void SignalK::validate_token() {
   }
 }
 
+// The token's preference record, 0-terminated. ESPHome's host preferences keep at most 255 bytes per record;
+// on the ESP32 it stays 256 bytes, as devices have saved it so far (another size would lose their token).
+#ifdef USE_HOST
+static constexpr size_t TOKEN_MAX_LENGTH = 255;
+#else
+static constexpr size_t TOKEN_MAX_LENGTH = 256;
+#endif
+
 void SignalK::save_token() {
-  constexpr size_t TOKEN_MAX_LENGTH = 256;
   char token_buffer[TOKEN_MAX_LENGTH] = {0};
-  uint32_t hash = fnv1_hash("signalk" + this->host_);
   auto pref = global_preferences->make_preference<char[TOKEN_MAX_LENGTH]>(10000, true);
   memcpy(token_buffer, token_.c_str(), std::min(token_.size(), sizeof(token_buffer) - 1));
   // Written now, like the access request: the request is gone once approved, so a token lost to a restart
@@ -592,9 +601,7 @@ void SignalK::save_token() {
 }
 
 void SignalK::load_token() {
-  constexpr size_t TOKEN_MAX_LENGTH = 256;
   char token_buffer[TOKEN_MAX_LENGTH] = {0};
-  uint32_t hash = fnv1_hash("signalk" + this->host_);
   auto pref = global_preferences->make_preference<char[TOKEN_MAX_LENGTH]>(10000, true);
   if (pref.load(&token_buffer)) {
     token_ = std::string(token_buffer);
@@ -608,25 +615,24 @@ void SignalK::load_token() {
   }
 }
 
-// Next to the token (10000). An empty record means no server is bound.
-static const uint32_t SERVER_PREF_KEY = 10001;
+// Next to the token (10000). A record with port 0 means no server is bound. 10001 held an earlier text
+// record; it is no longer read.
+static const uint32_t SERVER_PREF_KEY = 10003;
 
 void SignalK::save_server() {
-  char buffer[SAVED_SERVER_MAX + 1] = {0};
-  const std::string record = host_discovered_ ? encode_saved_server(discovered_server_) : std::string();
-  memcpy(buffer, record.c_str(), record.size());
-  auto pref = global_preferences->make_preference<char[SAVED_SERVER_MAX + 1]>(SERVER_PREF_KEY, true);
-  if (!pref.save(&buffer))
+  SavedServer record{};
+  if (host_discovered_ && !to_saved_server(discovered_server_, record))
+    ESP_LOGW(TAG, "The SignalK server's name is too long to keep; it is looked up again after a restart");
+  auto pref = global_preferences->make_preference<SavedServer>(SERVER_PREF_KEY, true);
+  // Written now: it changes only when another server is chosen, and a restart must find it.
+  if (!pref.save(&record) || !global_preferences->sync())
     ESP_LOGE(TAG, "Failed to save the SignalK server");
 }
 
 bool SignalK::load_server(ServerCandidate &out) {
-  char buffer[SAVED_SERVER_MAX + 1] = {0};
-  auto pref = global_preferences->make_preference<char[SAVED_SERVER_MAX + 1]>(SERVER_PREF_KEY, true);
-  if (!pref.load(&buffer))
-    return false;
-  buffer[SAVED_SERVER_MAX] = '\0';
-  return decode_saved_server(std::string(buffer), out);
+  SavedServer record{};
+  auto pref = global_preferences->make_preference<SavedServer>(SERVER_PREF_KEY, true);
+  return pref.load(&record) && from_saved_server(record, out);
 }
 
 // The link of the access request waiting for approval, so a restart asks it again. Empty when none is.

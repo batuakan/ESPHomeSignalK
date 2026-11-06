@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -93,58 +93,71 @@ inline void add_unique(std::vector<ServerCandidate> &found, const ServerCandidat
   found.push_back(candidate);
 }
 
-/// Longest saved server record (encode_saved_server), without the terminating 0.
-static const size_t SAVED_SERVER_MAX = 200;
+/// The server a device is bound to, kept in an ESPHome preference next to its token. The software name and
+/// roles are not kept. Fields are 0-terminated; a record with port 0 means no server is bound.
+struct SavedServer {
+  char hostname[64];
+  char address[16];  ///< IPv4 address as text
+  char self[96];
+  uint16_t port;
+};
 
-/// The server a device is bound to, as saved in flash next to its token: a version line, then the host
-/// name, address, port and vessel id, one per line. The software name and roles are not kept.
-inline std::string encode_saved_server(const ServerCandidate &s) {
-  char port[6];
-  snprintf(port, sizeof(port), "%u", static_cast<unsigned>(s.port));
-  std::string out = "v1\n" + s.hostname + "\n" + s.address + "\n" + port + "\n" + s.self;
-  return out.size() <= SAVED_SERVER_MAX ? out : std::string();
+/// Copies `src` into the fixed field `dst`; false when it doesn't fit (with its terminating 0).
+template<size_t N> inline bool copy_saved_field(char (&dst)[N], const std::string &src) {
+  if (src.size() >= N)
+    return false;
+  std::memset(dst, 0, N);
+  std::memcpy(dst, src.data(), src.size());
+  return true;
 }
 
-/// Reads a record written by encode_saved_server. Anything else (another version, a missing or extra
-/// field, a control character, a port out of range, nothing to connect to) is refused and `out` is left
-/// as it was: flash can hold a record from other firmware, or a damaged one.
-inline bool decode_saved_server(const std::string &text, ServerCandidate &out) {
-  if (text.size() > SAVED_SERVER_MAX)
+/// Reads the fixed field `src` into `out`; false without a terminating 0 or with a control character.
+template<size_t N> inline bool read_saved_field(const char (&src)[N], std::string &out) {
+  const void *end = std::memchr(src, 0, N);
+  if (end == nullptr)
     return false;
-  std::vector<std::string> fields;
-  size_t start = 0;
-  while (true) {
-    size_t end = text.find('\n', start);
-    fields.push_back(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
-    if (end == std::string::npos)
-      break;
-    start = end + 1;
+  std::string text(src, static_cast<const char *>(end) - src);
+  for (char ch : text) {
+    if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f)
+      return false;
   }
-  if (fields.size() != 5 || fields[0] != "v1")
+  out = std::move(text);
+  return true;
+}
+
+/// Fills `out` for `s`. False, and nothing to save, when a field is too long: a cut record would name
+/// another server.
+inline bool to_saved_server(const ServerCandidate &s, SavedServer &out) {
+  SavedServer r{};
+  if (!copy_saved_field(r.hostname, s.hostname) || !copy_saved_field(r.address, s.address) ||
+      !copy_saved_field(r.self, s.self))
     return false;
-  for (const auto &f : fields) {
-    for (char ch : f) {
-      if (static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f)
-        return false;
-    }
-  }
-  const std::string &port = fields[3];
-  if (port.empty() || port.size() > 5 || port.find_first_not_of("0123456789") != std::string::npos)
-    return false;
-  unsigned long port_value = std::stoul(port);
-  if (port_value == 0 || port_value > 65535)
-    return false;
-  if (fields[2].find_first_not_of("0123456789.") != std::string::npos || fields[2].size() > 15)
-    return false;
+  r.port = s.port;
+  out = r;
+  return true;
+}
+
+/// Reads a saved record. Anything else than a record written by to_saved_server (a missing terminator, a
+/// control character, an address that isn't IPv4 text, port 0, nothing to connect to) is refused and `out`
+/// is left as it was: flash can hold a damaged record.
+inline bool from_saved_server(const SavedServer &r, ServerCandidate &out) {
   ServerCandidate s;
-  s.hostname = fields[1];
-  s.address = fields[2];
-  s.port = static_cast<uint16_t>(port_value);
-  s.self = fields[4];
+  if (!read_saved_field(r.hostname, s.hostname) || !read_saved_field(r.address, s.address) ||
+      !read_saved_field(r.self, s.self))
+    return false;
+  if (r.port == 0 || s.address.find_first_not_of("0123456789.") != std::string::npos)
+    return false;
   if (s.hostname.empty() && s.address.empty())
     return false;
+  s.port = r.port;
   out = s;
   return true;
+}
+
+/// True when both records name the same server in every saved field.
+inline bool same_saved_server(const SavedServer &a, const SavedServer &b) {
+  return a.port == b.port && std::strcmp(a.hostname, b.hostname) == 0 && std::strcmp(a.address, b.address) == 0 &&
+         std::strcmp(a.self, b.self) == 0;
 }
 
 }  // namespace signalk

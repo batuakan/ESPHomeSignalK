@@ -1,6 +1,7 @@
 // Host unit test for the saved server record (the server a device is bound to) and the checks used when
 // choosing one (no ESPHome needed): tools/test_cpp.sh
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -27,56 +28,74 @@ int main() {
   s.self = "urn:mrn:signalk:uuid:c0d79334-4e25-4245-8892-54e8ccc8021d";
 
   {  // round trip; the software name and roles are not kept
-    const std::string record = encode_saved_server(s);
-    CHECK(record == "v1\nboatpc\n192.168.1.20\n3000\nurn:mrn:signalk:uuid:c0d79334-4e25-4245-8892-54e8ccc8021d");
+    SavedServer record;
+    CHECK(to_saved_server(s, record));
+    CHECK(std::string(record.hostname) == "boatpc" && std::string(record.address) == "192.168.1.20");
+    CHECK(record.port == 3000);
     ServerCandidate back;
-    CHECK(decode_saved_server(record, back));
+    CHECK(from_saved_server(record, back));
     CHECK(back.hostname == s.hostname && back.address == s.address && back.port == 3000 && back.self == s.self);
     CHECK(back.swname.empty() && back.roles.empty());
     CHECK(same_server(back, s));
+    SavedServer again;
+    CHECK(to_saved_server(back, again) && same_saved_server(record, again));
   }
 
   {  // what a reply found with mDNS may lack still round-trips: no address, no vessel id
     ServerCandidate n;
     n.hostname = "boatpc";
     n.port = 3443;
+    SavedServer record;
     ServerCandidate back;
-    CHECK(decode_saved_server(encode_saved_server(n), back));
+    CHECK(to_saved_server(n, record) && from_saved_server(record, back));
     CHECK(back.connect_host() == "boatpc.local" && back.port == 3443);
   }
 
-  {  // too long to save: nothing is written rather than a cut record
+  {  // too long to save: nothing is written rather than a cut record, and `out` is left as it was
+    SavedServer record{};
+    record.port = 1234;
     ServerCandidate big = s;
-    big.self = std::string(SAVED_SERVER_MAX, 'x');
-    CHECK(encode_saved_server(big).empty());
+    big.self = std::string(sizeof(record.self), 'x');
+    CHECK(!to_saved_server(big, record) && record.port == 1234);
+    big = s;
+    big.hostname = std::string(sizeof(record.hostname), 'h');
+    CHECK(!to_saved_server(big, record));
+    big = s;
+    big.self = std::string(sizeof(record.self) - 1, 'x');  // just fits
+    CHECK(to_saved_server(big, record));
   }
 
   {  // refused, and `out` left as it was
-    const char *bad[] = {
-        "",                                     // nothing saved (also how "no server" is stored)
-        "v2\nboatpc\n192.168.1.20\n3000\nself",  // another version
-        "v1\nboatpc\n192.168.1.20\n3000",       // a field missing
-        "v1\nboatpc\n192.168.1.20\n3000\nself\nx",
-        "v1\nboatpc\n192.168.1.20\n0\nself",       // port 0
-        "v1\nboatpc\n192.168.1.20\n65536\nself",   // port out of range
-        "v1\nboatpc\n192.168.1.20\n30a0\nself",
-        "v1\nboatpc\n192.168.1.20\n\nself",
-        "v1\nboatpc\n192.168.1.20\n123456\nself",
-        "v1\nboat\tpc\n192.168.1.20\n3000\nself",  // control character
-        "v1\nboatpc\nfe80::1\n3000\nself",         // not an IPv4 address
-        "v1\nboatpc\n192.168.100.200.1\n3000\nself",
-        "v1\n\n\n3000\nself",  // nothing to connect to
-    };
-    for (const char *b : bad) {
+    SavedServer good;
+    CHECK(to_saved_server(s, good));
+    std::vector<SavedServer> bad;
+    bad.push_back(SavedServer{});  // nothing saved (also how "no server" is stored)
+    SavedServer r = good;
+    r.port = 0;  // port 0
+    bad.push_back(r);
+    r = good;
+    std::memset(r.hostname, 'a', sizeof(r.hostname));  // no terminating 0
+    bad.push_back(r);
+    r = good;
+    std::memset(r.self, 'a', sizeof(r.self));
+    bad.push_back(r);
+    r = good;
+    r.hostname[4] = '\t';  // control character
+    bad.push_back(r);
+    r = good;
+    std::strcpy(r.address, "fe80::1");  // not an IPv4 address
+    bad.push_back(r);
+    r = good;
+    r.hostname[0] = r.address[0] = '\0';  // nothing to connect to
+    bad.push_back(r);
+    for (size_t i = 0; i < bad.size(); i++) {
       ServerCandidate out = s;
-      if (decode_saved_server(b, out) || out.address != s.address) {
-        std::printf("FAIL: accepted \"%s\"\n", b);
+      out.address = "10.0.0.1";
+      if (from_saved_server(bad[i], out) || out.address != "10.0.0.1") {
+        std::printf("FAIL: accepted bad record %u\n", static_cast<unsigned>(i));
         failures++;
       }
     }
-    std::string too_long = "v1\nboatpc\n192.168.1.20\n3000\n" + std::string(SAVED_SERVER_MAX, 'x');
-    ServerCandidate out;
-    CHECK(!decode_saved_server(too_long, out));
   }
 
   {  // usable servers: what the list on the display offers
@@ -97,7 +116,8 @@ int main() {
 
   {  // a saved server is recognised after a restart of the server (new vessel id, new address)
     ServerCandidate saved;
-    CHECK(decode_saved_server(encode_saved_server(s), saved));
+    SavedServer record;
+    CHECK(to_saved_server(s, record) && from_saved_server(record, saved));
     ServerCandidate restarted = s;
     restarted.self = "urn:mrn:signalk:uuid:00000000-0000-0000-0000-000000000000";
     restarted.address = "192.168.1.77";

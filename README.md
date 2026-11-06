@@ -75,8 +75,23 @@ signalk:
 
 - The search is repeated every second until a server is found, the log shows `Found SignalK server ...`. It works on ESP32 (both frameworks, through ESPHome's `mdns` component, which is loaded automatically and must not be disabled) and for the `host:` build on your computer. Only IPv4 is used.
 - If several servers answer, the main server with the lowest address and port is used, and a warning lists how many were found. Set `host` to choose another one.
+- The server found is kept in flash (an ESPHome preference, next to the token), and after a restart only that server is accepted, so the token never goes to another one.
 - If the connection is lost, the same server is looked up again for 10 seconds, in case it has a new address; servers that are not the same one are ignored. After that the last known address is tried.
 - Discovery trusts your network: the login credentials or the access request go to whatever server answers, over plain HTTP. On a network you do not control, set `host` explicitly.
+
+#### Forgetting the server
+
+To move a device to another server, the `signalk.forget_server` action drops the server and its token. The device then looks for a server again and asks it for access. It does nothing when `host` is set. On a node without a display, a button can call it:
+
+```yaml
+button:
+  - platform: template
+    name: "Forget SignalK server"
+    on_press:
+      - signalk.forget_server: signalk_main  # the id of your signalk: block
+```
+
+The token, the server and a pending access request are ESPHome preferences, on the `host:` build too (a file in `ESPHOME_PREFDIR`, by default `~/.esphome/prefs/<name>.prefs`). ESPHome's `factory_reset` erases them along with everything else.
 
 ### ESPHome SignalK Components
 
