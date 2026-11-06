@@ -177,7 +177,8 @@ HttpResponse SignalKEspIdf::get(const std::string &path) {
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (token_.empty()) {
-    ESP_LOGW(TAG, "No authorization token provided");
+    // Normal while access is requested (it polls every second), so only at verbose level.
+    ESP_LOGV(TAG, "No authorization token provided");
   } else {
     auth_header_ = "Bearer " + token_;
     esp_http_client_set_header(client, "Authorization", auth_header_.c_str());

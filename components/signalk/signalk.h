@@ -17,6 +17,7 @@
 #include "unit_conversions.h"
 #include "subscription_set.h"
 #include "server_discovery.h"
+#include "access_request.h"
 
 namespace esphome {
 namespace signalk {
@@ -54,12 +55,17 @@ class SignalK : public PollingComponent {
   void put_request(const std::string &path, const std::variant<double, std::string, bool> &value);
   void send_access_request();
   void poll_access_request();
+  /// The admin approved (token) or denied the access request.
+  void access_request_decided(const AccessReplyInfo &reply);
   void validate_token();
   virtual void save_token();
   virtual void load_token();
   /// The server the device is bound to (found with mDNS or chosen), kept next to the token.
   virtual void save_server();
   virtual bool load_server(ServerCandidate &out);
+  /// The link of the access request waiting for approval, kept so that a restart asks it again.
+  void save_access_href();
+  bool load_access_href();
 
   void set_device_name(std::string device_name) { device_name_ = device_name; }
   void set_host(std::string host) { host_ = host; }
@@ -164,6 +170,10 @@ class SignalK : public PollingComponent {
   std::string user_name_;
   std::string user_password_;
   std::string request_access_href_;
+  // Earliest time the next access request may be sent.
+  uint32_t next_access_request_at_{0};
+  // Replies in a row to the pending request's link that weren't understood.
+  uint32_t access_poll_unreadable_{0};
   std::string token_;
 
   std::vector<SignalkSubscriber *> sensors_;
