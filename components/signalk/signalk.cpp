@@ -10,6 +10,9 @@
 
 #include "signalk.h"
 #include "utils.h"
+#ifdef USE_NETWORK
+#include "esphome/components/network/util.h"
+#endif
 
 namespace esphome {
 namespace signalk {
@@ -25,6 +28,8 @@ static const uint32_t SUBSCRIPTION_DEBOUNCE_MS = 200;
 static const uint32_t REDISCOVERY_TIMEOUT_MS = 10000;
 // While nothing is found the search is repeated every second; it is only logged this often.
 static const uint32_t DISCOVERY_LOG_EVERY_POLLS = 30;
+// Servers that refused the token, skipped until the server is forgotten or the device restarts.
+static const size_t MAX_REJECTED_SERVERS = 4;
 // Wait this long before asking the server for metadata again after a failed request.
 static const uint32_t METADATA_RETRY_MS = 10000;
 // Access requests are sent at most this often, and much less often while the server refuses them (each
@@ -251,9 +256,21 @@ bool SignalK::resolve_server() {
   if (rediscovering_) {
     // Only come back to the server we had: credentials and the access token must not go to a different
     // server that just happens to be on the network.
-    found.erase(std::remove_if(found.begin(), found.end(),
-                               [this](const ServerCandidate &c) { return !same_server(c, discovered_server_); }),
-                found.end());
+    ServerCandidate bound;
+    ServerMatch match = ServerMatch::NONE;
+    if (!pick_bound_server(found, discovered_server_, rejected_servers_, bound, match)) {
+      if (discovery_polls_without_result_++ % DISCOVERY_LOG_EVERY_POLLS == 0)
+        ESP_LOGW(TAG, "SignalK server %s:%u not found with mDNS, still looking", host_.c_str(), port_);
+      return false;
+    }
+    if (match == ServerMatch::VESSEL) {
+      try_server(bound);
+    } else {
+      if (bound.connect_host() != host_ || bound.port != port_)
+        ESP_LOGI(TAG, "SignalK server found again at %s:%u", bound.connect_host().c_str(), bound.port);
+      bind_server(bound);
+    }
+    return true;
   }
   const ServerCandidate *server = pick_server(found);
   if (server == nullptr) {
@@ -283,8 +300,55 @@ void SignalK::bind_server(const ServerCandidate &server) {
   host_discovered_ = true;
   rediscovering_ = false;
   discovery_polls_without_result_ = 0;
+  trying_server_ = false;
   if (changed)
     save_server();
+}
+
+void SignalK::try_server(const ServerCandidate &server) {
+  // Kept to come back to; while trying, nothing is saved, so a restart is bound to it again.
+  if (!trying_server_)
+    bound_server_ = discovered_server_;
+  ESP_LOGW(TAG,
+           "SignalK server %s:%u has this vessel's id but not the address or host name of %s:%u; trying it, "
+           "the token is kept if it refuses it",
+           server.connect_host().c_str(), server.port, bound_server_.connect_host().c_str(), bound_server_.port);
+  host_ = server.connect_host();
+  port_ = server.port;
+  discovered_server_ = server;
+  host_discovered_ = true;
+  rediscovering_ = false;
+  discovery_polls_without_result_ = 0;
+  trying_server_ = true;
+}
+
+void SignalK::confirm_server() {
+  if (!trying_server_)
+    return;
+  trying_server_ = false;
+  ESP_LOGI(TAG, "Bound to SignalK server %s:%u", host_.c_str(), port_);
+  save_server();
+}
+
+void SignalK::refuse_tried_server() {
+  ESP_LOGW(TAG,
+           "SignalK server %s:%u refused the token, so it is not the server the token came from; looking for "
+           "%s:%u again",
+           host_.c_str(), port_, bound_server_.connect_host().c_str(), bound_server_.port);
+  if (rejected_servers_.size() < MAX_REJECTED_SERVERS)
+    rejected_servers_.push_back(discovered_server_);
+  back_to_bound_server();
+  rediscovering_ = true;
+  rediscovery_started_at_ = sk_millis();
+}
+
+void SignalK::back_to_bound_server() {
+  if (!trying_server_)
+    return;
+  discovered_server_ = bound_server_;
+  host_ = bound_server_.connect_host();
+  port_ = bound_server_.port;
+  trying_server_ = false;
 }
 
 void SignalK::poll_scan() {
@@ -305,7 +369,9 @@ void SignalK::poll_scan() {
 void SignalK::choose_server(const ServerCandidate &server) {
   if (host_configured_ || !usable_server(server))
     return;
-  if (host_discovered_ && same_server(server, discovered_server_)) {
+  // Chosen by hand: the same vessel id alone is another server (a second server on board), not this one.
+  const ServerCandidate &bound = trying_server_ ? bound_server_ : discovered_server_;
+  if (host_discovered_ && match_server(server, bound) >= ServerMatch::HOST_NAME) {
     // The same server, the token stays. Reconnect when it is somewhere else now.
     const bool moved = server.connect_host() != host_ || server.port != port_;
     bind_server(server);
@@ -323,6 +389,8 @@ void SignalK::forget_server() {
     return;
   ESP_LOGI(TAG, "Forgetting the SignalK server and its token");
   disconnect();
+  trying_server_ = false;
+  rejected_servers_.clear();
   token_.clear();
   save_token();
   discovered_server_ = ServerCandidate();
@@ -337,6 +405,7 @@ void SignalK::forget_server() {
 }
 
 void SignalK::server_unreachable() {
+  back_to_bound_server();  // look for the bound server, not the one being tried
   if (host_discovered_ && !rediscovering_) {
     ESP_LOGW(TAG, "SignalK server %s:%u not reachable, looking for it again", host_.c_str(), port_);
     rediscovering_ = true;
@@ -345,6 +414,19 @@ void SignalK::server_unreachable() {
 }
 
 void SignalK::update() {
+#ifdef USE_NETWORK
+  // Nothing can be reached before the network is up; a request then would count the server as gone and
+  // start a search on every boot.
+  if (!network::is_connected()) {
+    network_was_up_ = false;
+    return;
+  }
+  if (!network_was_up_) {
+    network_was_up_ = true;
+    if (rediscovering_)
+      rediscovery_started_at_ = sk_millis();  // the search starts now
+  }
+#endif
   if (!this->resolve_server())
     return;
   this->poll_scan();
@@ -370,6 +452,7 @@ void SignalK::dump_config() {}
 void SignalK::on_connected() {
   // A fresh connection has no subscriptions: send the full set now (no debounce).
   ESP_LOGI(TAG, "Connected to SignalK stream");
+  confirm_server();
   subscriptions_.mark_disconnected();
   metadata_next_attempt_at_ = 0;
   this->sync_subscriptions();
@@ -379,6 +462,7 @@ void SignalK::on_disconnected() {
   ESP_LOGW(TAG, "Disconnected from SignalK server");
   // The server may have a new address. The transport reports every failed reconnect as a disconnect, so
   // the window only starts with the first one.
+  back_to_bound_server();
   if (host_discovered_ && !rediscovering_) {
     rediscovering_ = true;
     rediscovery_started_at_ = sk_millis();
@@ -507,6 +591,7 @@ void SignalK::access_request_decided(const AccessReplyInfo &reply) {
   token_ = reply.token;
   save_token();
   ESP_LOGI(TAG, "Access request approved, token %s", redact(token_).c_str());
+  confirm_server();  // its token comes from this server
 }
 
 void SignalK::poll_access_request() {
@@ -567,6 +652,9 @@ void SignalK::validate_token() {
   if (response.status_code == 426) {
     request_access_state_ = SignalKRequestAccessState::COMPLETED;
     ESP_LOGI(TAG, "Token validation successful");
+    confirm_server();
+  } else if (response.status_code == 401 && trying_server_) {
+    refuse_tried_server();  // the token stays: it belongs to the server we were bound to
   } else if (response.status_code == 401) {
     token_.clear();
     save_token();

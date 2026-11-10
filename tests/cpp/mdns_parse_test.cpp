@@ -345,6 +345,73 @@ int main() {
     CHECK(pick_server({nothing}) == nullptr);  // neither address nor host name
   }
 
+  // How a server found again matches the bound one.
+  {
+    ServerCandidate bound;
+    bound.hostname = "Hellforge (2)";
+    bound.address = "192.168.0.124";
+    bound.self = "urn:mrn:signalk:uuid:137b";
+    bound.port = 3000;
+    ServerCandidate c = bound;
+    CHECK(match_server(c, bound) == ServerMatch::ADDRESS);
+    c.address = "192.168.0.200";
+    CHECK(match_server(c, bound) == ServerMatch::HOST_NAME);  // came back on another address
+    c.hostname = "Hellforge";
+    CHECK(match_server(c, bound) == ServerMatch::VESSEL);  // only the vessel id
+    c.self = "urn:mrn:signalk:uuid:other";
+    CHECK(match_server(c, bound) == ServerMatch::NONE);
+    c = bound;
+    c.port = 3100;
+    CHECK(match_server(c, bound) == ServerMatch::VESSEL);  // another server on that machine, same vessel
+    c.self.clear();
+    CHECK(match_server(c, bound) == ServerMatch::NONE);
+    c = bound;
+    c.hostname = "Hellforge";  // the conflict suffix went away after a restart
+    CHECK(match_server(c, bound) == ServerMatch::ADDRESS);
+    c.self = "urn:mrn:signalk:uuid:other";  // another machine got the address
+    CHECK(match_server(c, bound) == ServerMatch::NONE);
+  }
+
+  // Finding the bound server again when another server of the same vessel is on the network (a second
+  // server on board, or one with a copied configuration).
+  {
+    ServerCandidate bound;
+    bound.hostname = "Hellforge (2)";
+    bound.address = "192.168.0.124";
+    bound.self = "urn:mrn:signalk:uuid:137b";
+    bound.port = 3000;
+    bound.roles = "master, main";
+    ServerCandidate twin = bound;  // same vessel id, other machine
+    twin.hostname = "boatpi";
+    twin.address = "192.168.0.3";
+    ServerCandidate stranger = bound;
+    stranger.hostname = "neighbour";
+    stranger.address = "192.168.0.50";
+    stranger.self = "urn:mrn:signalk:uuid:neighbour";
+    ServerCandidate out;
+    ServerMatch match = ServerMatch::NONE;
+    const std::vector<ServerCandidate> none;
+
+    CHECK(pick_bound_server({twin, bound}, bound, none, out, match));
+    CHECK(out.address == "192.168.0.124" && match == ServerMatch::ADDRESS);
+    // the bound server didn't answer this time: the twin only by its vessel id, to be tried
+    CHECK(pick_bound_server({twin, stranger}, bound, none, out, match));
+    CHECK(out.address == "192.168.0.3" && match == ServerMatch::VESSEL);
+    // the twin refused the token: skipped from then on
+    CHECK(!pick_bound_server({twin, stranger}, bound, {twin}, out, match));
+    CHECK(pick_bound_server({twin, bound}, bound, {twin}, out, match) && out.address == "192.168.0.124");
+    // a host name match beats a vessel id match, even at a lower address
+    ServerCandidate moved = bound;
+    moved.address = "192.168.0.201";
+    CHECK(pick_bound_server({twin, moved}, bound, none, out, match));
+    CHECK(out.address == "192.168.0.201" && match == ServerMatch::HOST_NAME);
+    CHECK(!pick_bound_server({stranger}, bound, none, out, match));
+    CHECK(!pick_bound_server({}, bound, none, out, match));
+    ServerCandidate not_signalk = bound;
+    not_signalk.swname = "some-web-server";
+    CHECK(!pick_bound_server({not_signalk}, bound, none, out, match));
+  }
+
   if (failures == 0)
     std::printf("mdns_parse_test: all passed\n");
   return failures == 0 ? 0 : 1;

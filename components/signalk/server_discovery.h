@@ -65,14 +65,74 @@ inline const ServerCandidate *pick_server(const std::vector<ServerCandidate> &fo
   return best;
 }
 
-/// True when both are the same server: the same vessel id, or the same host name on the same port. The
-/// address may differ, a server can come back on another address. Neither alone is dependable: the vessel
-/// id changes on every start of a server that has no vessel UUID configured, and a host name is shared by
-/// every server running on that machine, hence the port.
+/// How a server found with mDNS matches the bound one, weakest first.
+enum class ServerMatch : uint8_t {
+  NONE,
+  /// Only the vessel id. Not proof: every server of a vessel has its id (a second server on board, a
+  /// copied configuration), so a token may not be valid there. Kept for a server that came back with
+  /// another address and another host name.
+  VESSEL,
+  HOST_NAME,  ///< the same mDNS host name on the same port; the address may have changed
+  ADDRESS,    ///< the same address and port, and the same host name or vessel id
+};
+
+/// How `c` matches `bound`. The port must agree for a host name or an address: a machine can run several
+/// servers. The vessel id alone changes on every start of a server without a configured vessel UUID, which
+/// the host name covers. An address alone proves nothing (DHCP gives it to another machine), so an address
+/// match also needs the host name or the vessel id; a host name with a conflict suffix ("Boat PC (2)")
+/// can change between restarts, which the address and vessel id cover.
+inline ServerMatch match_server(const ServerCandidate &c, const ServerCandidate &bound) {
+  const bool same_vessel = !c.self.empty() && c.self == bound.self;
+  if (c.port == bound.port) {
+    const bool same_name = !c.hostname.empty() && c.hostname == bound.hostname;
+    if (!c.address.empty() && c.address == bound.address && (same_name || same_vessel))
+      return ServerMatch::ADDRESS;
+    if (same_name)
+      return ServerMatch::HOST_NAME;
+  }
+  return same_vessel ? ServerMatch::VESSEL : ServerMatch::NONE;
+}
+
+/// True when `c` may be the bound server in any way (see match_server).
 inline bool same_server(const ServerCandidate &a, const ServerCandidate &b) {
-  if (!a.self.empty() && a.self == b.self)
-    return true;
-  return !a.hostname.empty() && a.hostname == b.hostname && a.port == b.port;
+  return match_server(a, b) != ServerMatch::NONE;
+}
+
+/// True when `c` is one of `servers`, by address and port (by host name when there is no address).
+inline bool listed_server(const ServerCandidate &c, const std::vector<ServerCandidate> &servers) {
+  for (const auto &s : servers) {
+    if (s.port != c.port)
+      continue;
+    if (!c.address.empty() ? s.address == c.address : (!c.hostname.empty() && s.hostname == c.hostname))
+      return true;
+  }
+  return false;
+}
+
+/// Finds the bound server among the ones found again. The best match wins (the address, then the host name,
+/// then only the vessel id), ties are broken as in pick_server, and servers in `rejected` (ones that refused
+/// the token) are skipped. False when none matches; `out` and `match` are set otherwise.
+inline bool pick_bound_server(const std::vector<ServerCandidate> &found, const ServerCandidate &bound,
+                              const std::vector<ServerCandidate> &rejected, ServerCandidate &out,
+                              ServerMatch &match) {
+  ServerMatch best = ServerMatch::NONE;
+  for (const auto &c : found) {
+    if (usable_server(c) && !listed_server(c, rejected))
+      best = std::max(best, match_server(c, bound));
+  }
+  if (best == ServerMatch::NONE)
+    return false;
+  std::vector<ServerCandidate> tier;
+  for (const auto &c : found) {
+    if (usable_server(c) && !listed_server(c, rejected) && match_server(c, bound) == best)
+      tier.push_back(c);
+  }
+  const ServerCandidate *server = pick_server(tier);
+  if (server == nullptr)
+    return false;
+  out = *server;
+  match = best;
+  return true;
 }
 
 /// Adds `candidate` unless the same server (same address, or same host name when there is no address, and

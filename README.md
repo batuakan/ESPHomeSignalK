@@ -76,7 +76,8 @@ signalk:
 - The search is repeated every second until a server is found, the log shows `Found SignalK server ...`. It works on ESP32 (both frameworks, through ESPHome's `mdns` component, which is loaded automatically and must not be disabled) and for the `host:` build on your computer. Only IPv4 is used.
 - If several servers answer, the main server with the lowest address and port is used, and a warning lists how many were found. Set `host` to choose another one.
 - The server found is kept in flash (an ESPHome preference, next to the token), and after a restart only that server is accepted, so the token never goes to another one.
-- If the connection is lost, the same server is looked up again for 10 seconds, in case it has a new address; servers that are not the same one are ignored. After that the last known address is tried.
+- If the connection is lost, the same server is looked up again for 10 seconds, in case it has a new address; servers that are not the same one are ignored. After that the last known address is tried. The search starts only once the network is up, so a normal boot doesn't search at all.
+- The same server is recognised by, best first: its address and port (with the same host name or vessel id: another machine can get the address), its mDNS host name and port, or only its vessel id. The vessel id alone is not proof, since every server of a vessel has it (a second server on board, or one started with a copied configuration). Such a server is only tried: it isn't saved until it accepts the token, and if it refuses it the token is kept, that server is skipped, and the bound server is looked for again.
 - Discovery trusts your network: the login credentials or the access request go to whatever server answers, over plain HTTP. On a network you do not control, set `host` explicitly.
 
 #### Forgetting the server

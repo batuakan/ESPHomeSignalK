@@ -151,6 +151,15 @@ class SignalK : public PollingComponent {
   void poll_scan();
   /// Commits to `server`: it is used and saved, so that only it is accepted after a restart.
   void bind_server(const ServerCandidate &server);
+  /// Uses `server`, which matches the bound server only by its vessel id, without saving it: it is bound
+  /// once it accepts the token (confirm_server), and given up if it refuses it (refuse_tried_server).
+  void try_server(const ServerCandidate &server);
+  /// The server being tried accepted the token or gave one: bind it.
+  void confirm_server();
+  /// The server being tried refused the token: skip it and look for the bound server again, token kept.
+  void refuse_tried_server();
+  /// Stops trying a server: the bound one is used (and looked for) again.
+  void back_to_bound_server();
   /// An HTTP request got no response: a found server may have moved, look for it again.
   void server_unreachable();
   void sync_metadata();
@@ -160,6 +169,10 @@ class SignalK : public PollingComponent {
   // The host was found with mDNS (not configured), so it is looked up again after a disconnect.
   bool host_discovered_{false};
   ServerCandidate discovered_server_;  // what was found, so that only this server is accepted again
+  bool trying_server_{false};          // discovered_server_ is being tried (try_server), not bound
+  ServerCandidate bound_server_;       // the bound server while another is tried
+  std::vector<ServerCandidate> rejected_servers_;
+  bool network_was_up_{false};
   bool rediscovering_{false};
   uint32_t rediscovery_started_at_{0};
   uint32_t discovery_polls_without_result_{0};
