@@ -113,8 +113,7 @@ inline bool listed_server(const ServerCandidate &c, const std::vector<ServerCand
 /// then only the vessel id), ties are broken as in pick_server, and servers in `rejected` (ones that refused
 /// the token) are skipped. False when none matches; `out` and `match` are set otherwise.
 inline bool pick_bound_server(const std::vector<ServerCandidate> &found, const ServerCandidate &bound,
-                              const std::vector<ServerCandidate> &rejected, ServerCandidate &out,
-                              ServerMatch &match) {
+                              const std::vector<ServerCandidate> &rejected, ServerCandidate &out, ServerMatch &match) {
   ServerMatch best = ServerMatch::NONE;
   for (const auto &c : found) {
     if (usable_server(c) && !listed_server(c, rejected))
