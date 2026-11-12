@@ -61,7 +61,19 @@ inline uint32_t sk_millis() {
       .count();
 }
 
-inline std::string get_uuid() { return "12345678-1234-1232-123456789012"; }
+#include "esphome/core/application.h"
+#include "esphome/core/helpers.h"
+#include "host_device_id.h"
+
+/// The host build's device id: from the ESPHome node name and host MAC (host_device_id.h).
+inline std::string get_uuid() {
+  static const std::string id = [] {
+    uint8_t mac[6];
+    esphome::get_mac_address_raw(mac);
+    return esphome::signalk::host_device_id(esphome::App.get_name(), mac);
+  }();
+  return id;
+}
 
 #endif
 
