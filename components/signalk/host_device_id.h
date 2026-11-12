@@ -32,7 +32,7 @@ inline std::string host_device_id(const std::string &name, const uint8_t mac[6])
   char out[37];
   std::snprintf(out, sizeof(out), "%08x-%04x-%04x-%04x-%012llx", static_cast<unsigned>(hi >> 32),
                 static_cast<unsigned>((hi >> 16) & 0xFFFF),
-                static_cast<unsigned>(0x8000 | (hi & 0x0FFF)),         // version 8
+                static_cast<unsigned>(0x8000 | (hi & 0x0FFF)),          // version 8
                 static_cast<unsigned>(0x8000 | ((lo >> 48) & 0x3FFF)),  // variant 10
                 static_cast<unsigned long long>(lo & 0xFFFFFFFFFFFFULL));
   return out;
