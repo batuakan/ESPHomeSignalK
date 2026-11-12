@@ -94,6 +94,8 @@ button:
 
 The token, the server and a pending access request are ESPHome preferences, on the `host:` build too (a file in `ESPHOME_PREFDIR`, by default `~/.esphome/prefs/<name>.prefs`). ESPHome's `factory_reset` erases them along with everything else.
 
+The device id (the access request's `clientId`) comes from the chip's MAC on an ESP32. A `host:` build has no chip: its id is made from the node name (`esphome: name:`) and ESPHome's host MAC, so each build has its own id, the same after every rebuild. To run two copies of one build as two devices, give one of them another `host: mac_address:`.
+
 ### ESPHome SignalK Components
 
 Signalk component provides the following types "core" components to send/fetch data to/from the signalk server:
