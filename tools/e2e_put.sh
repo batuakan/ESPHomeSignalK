@@ -69,6 +69,9 @@ put() {
 }
 value() { curl -s -H "Authorization: Bearer $TOKEN" "$BASE/signalk/v1/api/vessels/self/${1//.//}/value"; }
 
+# A lambda value with `type: boolean` arrives as a JSON boolean, not 0/1.
+[[ "$(value test.put.mode)" == "false" ]] && echo "ok   lambda boolean published as false" ||
+  { echo "FAIL test.put.mode is $(value test.put.mode)"; fail=1; }
 put test.put.steps 5 200
 sleep 0.5
 [[ "$(value test.put.steps)" == "5" ]] && echo "ok   test.put.steps is 5" || { echo "FAIL test.put.steps is $(value test.put.steps)"; fail=1; }

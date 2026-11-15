@@ -362,6 +362,18 @@ Keys you do not set are filled in for you, and anything you write in `meta:` rep
 
 In order to send data back to server use the **signalk.publish_delta** action. publish_delta action supports string, boolean and floating values. The unit field is optional, however if applied converts from the sensors unit format to the base SI format that signalk uses, e.g. if the sensor provides temperature values in celsius they will be converted to fahrenheit while being sent to the server.
 
+A constant `value:` is sent as its own type. A lambda `value:` is sent as a number unless `type:` says
+otherwise (`number`, `boolean` or `string`), because its type can't be read from the YAML:
+
+```yaml
+- signalk.publish_delta:
+    path: steering.autopilot.ac10.engaged
+    type: boolean
+    value: !lambda "return id(lamp).state;"
+```
+
+The same `type:` option exists for `signalk.put_request`.
+
 
 ```yaml
 sensor:

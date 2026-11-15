@@ -28,7 +28,8 @@ signalk:
     - signalk.publish_delta:
         id: sk
         path: "test.put.mode"
-        value: false
+        type: boolean
+        value: !lambda "return false;"
     - switch.turn_off: e2e_switch
   on_put:
     - path: "test.put.steps"

@@ -230,9 +230,17 @@ def delta_value_constant(value):
     return cg.RawExpression(f"{float(value)!r}f")
 
 
-async def delta_value_templatable(value, args):
+# `type:` of a lambda value -> the lambda's return type (a lambda can't be inspected at build time)
+LAMBDA_VALUE_TYPES = {
+    "number": cg.float_,
+    "boolean": cg.bool_,
+    "string": cg.std_string,
+}
+
+
+async def delta_value_templatable(value, args, value_type="number"):
     if cg.is_template(value):
-        return await cg.templatable(value, args, cg.float_)
+        return await cg.templatable(value, args, LAMBDA_VALUE_TYPES[value_type])
     return await cg.templatable(value, args, DeltaValue, to_exp=delta_value_constant)
 
 
@@ -344,6 +352,8 @@ PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
                 cv.boolean,
             )
         ),
+        # What a lambda `value:` returns; constants are typed by themselves.
+        cv.Optional(CONF_TYPE, default="number"): cv.one_of(*LAMBDA_VALUE_TYPES, lower=True),
         cv.Required(CONF_PATH): validate_signalk_path,
         cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
         cv.Optional(CONF_META): SIGNALK_META_SCHEMA,
@@ -360,6 +370,8 @@ PUT_REQUEST_SCHEMA = automation.maybe_simple_id(
                 cv.boolean,
             )
         ),
+        # What a lambda `value:` returns; constants are typed by themselves.
+        cv.Optional(CONF_TYPE, default="number"): cv.one_of(*LAMBDA_VALUE_TYPES, lower=True),
         cv.Required(CONF_PATH): validate_signalk_path,
         cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
     }
@@ -375,7 +387,7 @@ async def put_request_to_code(config, action_id, template_arg, args):
     if CONF_UNIT in config:
         cg.add(var.set_unit(config[CONF_UNIT]))
     if CONF_VALUE in config:
-        templ = await delta_value_templatable(config[CONF_VALUE], args)
+        templ = await delta_value_templatable(config[CONF_VALUE], args, config[CONF_TYPE])
         cg.add(var.set_value(templ))
     return var
 
@@ -423,7 +435,7 @@ async def publish_delta_to_code(config, action_id, template_arg, args):
     if CONF_UNIT in config:
         cg.add(var.set_unit(config[CONF_UNIT]))
     if CONF_VALUE in config:
-        templ = await delta_value_templatable(config[CONF_VALUE], args)
+        templ = await delta_value_templatable(config[CONF_VALUE], args, config[CONF_TYPE])
         cg.add(var.set_value(templ))
     if CONF_META in config:
         # The path is only published, so the metadata lives in its own object that the parent syncs
