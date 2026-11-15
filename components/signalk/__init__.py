@@ -407,10 +407,9 @@ async def to_code(config):
     if CORE.is_host:
         cg.add_build_flag("-I/usr/local/include")
         cg.add_build_flag("-L/usr/local/lib")
-        cg.add_build_flag("-lixwebsocket")
-        cg.add_build_flag("-lz")
-        cg.add_build_flag("-lssl")
-        cg.add_build_flag("-lcrypto")
+        # One flag: ESPHome sorts build flags, and the static ixwebsocket must come before the libraries
+        # it uses or the link fails (undefined reference to ERR_get_error).
+        cg.add_build_flag("-lixwebsocket -lssl -lcrypto -lz")
 
         cg.add_platformio_option("build_type", "debug")
 
