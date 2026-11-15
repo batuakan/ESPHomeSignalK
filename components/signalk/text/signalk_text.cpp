@@ -15,6 +15,15 @@ void SignalkText::update() {
   }
 }
 
+void SignalkText::enable_put() {
+  this->parent_->add_put_handler(this->path_, [this](const std::string &, JsonVariantConst value) {
+    auto call = this->make_call();
+    call.set_value(put_value_text(value));
+    call.perform();
+    return std::optional<PutReply>(PutReply{200, ""});
+  });
+}
+
 void SignalkText::control(const std::string &state) {
   this->publish_state(state);
   this->parent_->publish_delta(this->path_, state);

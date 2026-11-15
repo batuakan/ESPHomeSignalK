@@ -16,6 +16,8 @@ class SignalkNumber : public SignalKSubscriberTemplated<float>, public number::N
   void dump_config() override;
   void set_unit(Unit unit) { this->unit_ = unit; }
   void update() override;
+  /// Lets the server forward PUTs for the path to this number (meta supportsPut). Values are SI.
+  void enable_put();
 
  protected:
   // void write_state(float state) override;

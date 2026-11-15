@@ -15,6 +15,8 @@ class SignalkText : public SignalKSubscriberTemplated<std::string>, public text:
   void setup() override;
   void dump_config() override;
   void update() override;
+  /// Lets the server forward PUTs for the path to this text (meta supportsPut).
+  void enable_put();
 
  protected:
   void control(const std::string &value) override;

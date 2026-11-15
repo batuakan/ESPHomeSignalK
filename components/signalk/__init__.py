@@ -12,6 +12,8 @@ from esphome.const import (
     CONF_PASSWORD,
     CONF_PATH,
     CONF_PORT,
+    CONF_TRIGGER_ID,
+    CONF_TYPE,
     CONF_USERNAME,
     CONF_VALUE,
     PlatformFramework,
@@ -35,6 +37,13 @@ CONF_HOST = "host"
 CONF_UNIT = "unit"
 CONF_META = "meta"
 CONF_SIGNALK_PATH = "signalk_path"
+CONF_SOURCE = "source"
+CONF_ON_PUT = "on_put"
+CONF_ON_CONNECT = "on_connect"
+CONF_REPLY = "reply"
+CONF_REQUEST_ID = "request_id"
+CONF_STATUS_CODE = "status_code"
+CONF_MESSAGE = "message"
 
 SIGNALK_PATH_REGEX = re.compile(r"^[A-Za-z0-9_]+(.[A-Za-z0-9_]+)(..*)?$")
 
@@ -182,6 +191,32 @@ ForgetServerAction = signalk_ns.class_("ForgetServerAction", automation.Action)
 
 PutRequestString = PutRequestAction.template(cg.std_string)
 
+PutTrigger = signalk_ns.class_("PutTrigger", automation.Trigger)
+ConnectTrigger = signalk_ns.class_("ConnectTrigger", automation.Trigger.template())
+PutReplyAction = signalk_ns.class_("PutReplyAction", automation.Action)
+
+# on_put `type:` -> the C++ type of `x`
+PUT_VALUE_TYPES = {
+    "string": cg.std_string,
+    "number": cg.float_,
+    "boolean": cg.bool_,
+}
+
+
+def validate_unique_put_paths(automations):
+    paths = [a[CONF_PATH] for a in automations]
+    for path in paths:
+        if paths.count(path) > 1:
+            raise cv.Invalid(f"on_put: more than one entry for path '{path}'")
+    return automations
+
+
+def validate_put_unit(config):
+    if config[CONF_UNIT] != "none" and config[CONF_TYPE] != "number":
+        raise cv.Invalid("on_put: 'unit' needs 'type: number'")
+    return config
+
+
 # std::variant<float, std::string, bool>, see signalk.h
 DeltaValue = signalk_ns.struct("DeltaValue")
 
@@ -271,6 +306,28 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_NAME, default="esp32"): cv.string,
         cv.Optional(CONF_USERNAME, default=""): cv.string,
         cv.Optional(CONF_PASSWORD, default=""): cv.string,
+        # $source of published deltas; the server forwards PUTs only to a client that publishes with one.
+        # Defaults to "esphome.<node name>"; an empty string sends none.
+        cv.Optional(CONF_SOURCE): cv.string,
+        cv.Optional(CONF_ON_PUT): cv.All(
+            automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(PutTrigger),
+                    cv.Required(CONF_PATH): validate_signalk_path,
+                    cv.Optional(CONF_TYPE, default="string"): cv.one_of(*PUT_VALUE_TYPES, lower=True),
+                    # The PUT value is SI; `x` is converted to this unit (type: number).
+                    cv.Optional(CONF_UNIT, default="none"): cv.enum(UNIT),
+                    # auto: answer 200 when the automation starts, unless it answered itself.
+                    # manual: the automation answers with signalk.put_reply (within 60 s).
+                    cv.Optional(CONF_REPLY, default="auto"): cv.one_of("auto", "manual", lower=True),
+                },
+                extra_validators=validate_put_unit,
+            ),
+            validate_unique_put_paths,
+        ),
+        cv.Optional(CONF_ON_CONNECT): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(ConnectTrigger)}
+        ),
     }
     # The access/connection state machine runs in update(). Without an interval ESPHome
     # (2026.x) never calls update() on a PollingComponent, so default to 1s.
@@ -324,6 +381,29 @@ async def put_request_to_code(config, action_id, template_arg, args):
 
 
 FORGET_SERVER_SCHEMA = automation.maybe_simple_id({cv.GenerateID(): cv.use_id(signalk)})
+
+PUT_REPLY_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(signalk),
+        # Defaults to the last forwarded PUT; pass `request_id` from on_put when replying later.
+        cv.Optional(CONF_REQUEST_ID): cv.templatable(cv.string),
+        cv.Optional(CONF_STATUS_CODE, default=200): cv.templatable(cv.int_range(min=200, max=599)),
+        cv.Optional(CONF_MESSAGE): cv.templatable(cv.string),
+    }
+)
+
+
+# Answers a PUT the server forwarded to the device (on_put).
+@automation.register_action("signalk.put_reply", PutReplyAction, PUT_REPLY_SCHEMA, synchronous=True)
+async def put_reply_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, parent)
+    if CONF_REQUEST_ID in config:
+        cg.add(var.set_request_id(await cg.templatable(config[CONF_REQUEST_ID], args, cg.std_string)))
+    cg.add(var.set_status_code(await cg.templatable(config[CONF_STATUS_CODE], args, cg.int_)))
+    if CONF_MESSAGE in config:
+        cg.add(var.set_message(await cg.templatable(config[CONF_MESSAGE], args, cg.std_string)))
+    return var
 
 
 # Drops the server found with mDNS (or chosen) and its token; the device looks for a server again and asks
@@ -391,6 +471,23 @@ async def to_code(config):
     cg.add(var.set_device_name(config[CONF_NAME]))
     cg.add(var.set_user_name(config[CONF_USERNAME]))
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
+    cg.add(var.set_source(config.get(CONF_SOURCE, f"esphome.{CORE.name}")))
+
+    for conf in config.get(CONF_ON_PUT, []):
+        value_type = PUT_VALUE_TYPES[conf[CONF_TYPE]]
+        conf[CONF_TRIGGER_ID].type = PutTrigger.template(value_type)
+        trigger = cg.new_Pvariable(
+            conf[CONF_TRIGGER_ID],
+            var,
+            conf[CONF_PATH],
+            conf[CONF_REPLY] == "auto",
+            conf[CONF_UNIT],
+        )
+        await automation.build_automation(trigger, [(value_type, "x"), (cg.std_string, "request_id")], conf)
+
+    for conf in config.get(CONF_ON_CONNECT, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [], conf)
 
     if CORE.is_esp32:
         if CORE.using_arduino:

@@ -456,10 +456,16 @@ void SignalK::on_connected() {
   subscriptions_.mark_disconnected();
   metadata_next_attempt_at_ = 0;
   this->sync_subscriptions();
+  // Copy: a callback may add callbacks.
+  auto callbacks = connect_callbacks_;
+  for (auto &callback : callbacks)
+    callback();
 }
 
 void SignalK::on_disconnected() {
   ESP_LOGW(TAG, "Disconnected from SignalK server");
+  // Replies can't reach the server any more, and it answers 504 itself.
+  pending_puts_.clear();
   // The server may have a new address. The transport reports every failed reconnect as a disconnect, so
   // the window only starts with the first one.
   back_to_bound_server();
@@ -772,9 +778,49 @@ void SignalK::on_message(const std::string &msg) {
         listener(path);
     });
   }
-  JsonArray put_arr = doc["put"].as<JsonArray>();
-  if (!put_arr.isNull())
-    this->on_receive_delta(put_arr);
+  ForwardedPut put;
+  if (parse_forwarded_put(doc.as<JsonVariantConst>(), put))
+    this->handle_forwarded_put(put);
+}
+
+void SignalK::add_put_handler(const std::string &path, SignalKPutHandler handler) {
+  if (put_handlers_.count(path))
+    ESP_LOGW(TAG, "Two handlers for PUT %s, the last one is used", path.c_str());
+  put_handlers_[path] = std::move(handler);
+}
+
+void SignalK::handle_forwarded_put(const ForwardedPut &put) {
+  last_put_request_id_ = put.request_id;
+  if (put.items.size() != 1) {
+    ESP_LOGW(TAG, "PUT %s has %u paths, only one is supported", put.request_id.c_str(), (unsigned) put.items.size());
+    send(put_reply_json(put.request_id, 400, "One path per PUT is supported"));
+    return;
+  }
+  const PutItem &item = put.items[0];
+  auto it = put_handlers_.find(item.path);
+  if (it == put_handlers_.end()) {
+    ESP_LOGW(TAG, "PUT for %s, which this device does not handle", item.path.c_str());
+    send(put_reply_json(put.request_id, 405, "PUT not supported for " + item.path));
+    return;
+  }
+  ESP_LOGD(TAG, "PUT %s (%s)", item.path.c_str(), put.request_id.c_str());
+  pending_puts_.add(put.request_id, sk_millis());
+  SignalKPutHandler handler = it->second;  // the handler may add or replace handlers
+  std::optional<PutReply> reply = handler(put.request_id, item.value);
+  if (reply.has_value())
+    this->put_reply(put.request_id, reply->status_code, reply->message);
+}
+
+void SignalK::put_reply(const std::string &request_id, int status_code, const std::string &message) {
+  if (!pending_puts_.take(request_id)) {
+    ESP_LOGV(TAG, "No PUT %s waiting for a reply", request_id.c_str());
+    return;
+  }
+  if (!is_connected())
+    return;
+  if (status_code >= 400)
+    ESP_LOGW(TAG, "PUT %s refused (%d): %s", request_id.c_str(), status_code, message.c_str());
+  send(put_reply_json(request_id, status_code, message));
 }
 
 void SignalK::on_receive_delta(JsonArray &arr) {
@@ -868,8 +914,9 @@ void SignalK::publish_delta(const std::string &path, const std::variant<double, 
 
   JsonObject update = updates.add<JsonObject>();
 
-  // JsonObject source = update["source"].to<JsonObject>();
-  // source["src"] = get_uuid();
+  // With a $source the server knows which client publishes the path, and forwards PUTs for it here.
+  if (!source_.empty())
+    update["$source"] = source_;
 
   // auto timestamp = iso_timestamp();
   // update["timestamp"] = timestamp;

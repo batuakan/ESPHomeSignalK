@@ -57,4 +57,5 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_SIGNALK_PARENT_ID])
     cg.add(parent.subscribe(var))
     cg.add(var.set_parent(parent))
+    cg.add(var.enable_put())
     cg.add(var.setup())

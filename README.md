@@ -414,6 +414,66 @@ put_request action supports string, boolean and floating values. Below is an exa
           value: -10
 ```
 
+### Handling PUT requests on the device
+
+The device can also be the one that *answers* PUT requests: a PUT to a path sent by an app, a plugin
+(`app.putSelfPath`) or `curl` reaches the device, which acts on it and replies with success or an error.
+
+How signalk-server does this: when no plugin handles a path, it forwards the PUT to the WebSocket client
+that publishes that path with a `$source`. The client then answers with the request id, and if no answer
+comes the server replies `504` after 60 seconds. So the device has to **publish a path before it gets PUTs
+for it**, again after every reconnect, because the server forgets the client when it disconnects.
+`on_connect` is the place for that.
+
+```yaml
+signalk:
+  id: signalk_main
+  on_connect:
+    # Publish (claim) the paths this device handles PUTs for.
+    - signalk.publish_delta:
+        path: steering.autopilot.ac10.steps
+        value: 0.0
+  on_put:
+    - path: steering.autopilot.ac10.steps
+      type: number          # string (default), number or boolean: the type of x
+      # unit: degrees       # with type: number, x is converted from the SI value
+      # reply: auto         # auto (default): 200 unless the automation answered; manual: see below
+      then:
+        - if:
+            condition:
+              lambda: "return std::abs(x) > 180;"
+            then:
+              - signalk.put_reply:
+                  request_id: !lambda "return request_id;"
+                  status_code: 400
+                  message: "Too many steps"
+            else:
+              - logger.log:
+                  format: "steps %.0f"
+                  args: [x]
+```
+
+- `x` is the PUT value: a `float` for `type: number`, a `bool` for `type: boolean` (true/false, numbers,
+  or "on"/"off"), and a `std::string` for `type: string`. A string value comes as it is; anything else
+  comes as JSON. `request_id` is the request's id.
+- With `reply: auto` the device answers `200` as soon as the automation has started. If the automation
+  calls `signalk.put_reply` before that (as above), that answer is the one sent. Each request gets exactly
+  one answer.
+- With `reply: manual` the automation must answer within 60 s with `signalk.put_reply`, for example after
+  a `delay` or after checking that an actuator responded. `request_id` defaults to the last forwarded PUT;
+  pass it explicitly when the automation has a delay before the reply.
+- A value the type can't take (e.g. `"abc"` for `type: number`) is refused with `400` without running the
+  automation. A path the device has no handler for is refused with `405`.
+- `switch`, `number` and `text` entities handle PUTs to their path too (their meta says `supportsPut`).
+  Like any other path, they must have published once since the connection, so the server knows them. A
+  value from the server (the subscription), a state change, or e.g. `switch.turn_off` in `on_connect`
+  takes care of that.
+- Published deltas carry `$source: esphome.<node name>`. Set `source:` under `signalk:` to change it.
+  An empty string sends no `$source`, and then the server can't forward PUTs to the device.
+
+`tools/e2e_put.sh` runs all of this against a throwaway local signalk-server, using a `host:` build of
+`tests/e2e/put_host.yaml`.
+
 ## Contributing
 
 Contributions of all kinds are welcome! Whether it's feedback, bug reports, feature suggestions, testing, or code improvements, your input helps make the project better for everyone. Feel free to open an issue or submit a pull request—every bit of help is appreciated!

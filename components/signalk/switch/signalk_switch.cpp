@@ -19,6 +19,19 @@ void SignalkSwitch::update() {
   }
 }
 
+void SignalkSwitch::enable_put() {
+  this->parent_->add_put_handler(this->path_, [this](const std::string &, JsonVariantConst value) {
+    bool on;
+    if (!put_value_bool(value, on))
+      return std::optional<PutReply>(PutReply{400, "Expected true or false"});
+    if (on)
+      this->turn_on();
+    else
+      this->turn_off();
+    return std::optional<PutReply>(PutReply{200, ""});
+  });
+}
+
 void SignalkSwitch::write_state(bool state) {
   this->publish_state(state);
   this->parent_->publish_delta(this->path_, state);
