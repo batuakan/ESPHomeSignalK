@@ -44,6 +44,47 @@ signalk:
   id: signalk_main
   host: "127.0.0.1"
   port: 3000
+  source: "esphome.signalk-test"
+  # Publish the paths handled with on_put, so that the server forwards their PUTs here.
+  on_connect:
+    - signalk.publish_delta:
+        id: signalk_main
+        path: "test.put.steps"
+        value: 0.0
+  on_put:
+    - path: "test.put.steps"
+      type: number
+      then:
+        - if:
+            condition:
+              lambda: "return x > 100;"
+            then:
+              - signalk.put_reply:
+                  id: signalk_main
+                  request_id: !lambda "return request_id;"
+                  status_code: 400
+                  message: "Too many"
+    - path: "test.put.mode"
+      type: boolean
+      reply: manual
+      then:
+        - delay: 100ms
+        - signalk.put_reply:
+            id: signalk_main
+            request_id: !lambda "return request_id;"
+            message: !lambda 'return x ? std::string("on") : std::string("off");'
+    - path: "test.put.heading"
+      type: number
+      unit: degrees
+      then:
+        - logger.log:
+            format: "heading %.1f"
+            args: [x]
+    - path: "test.put.command"
+      then:
+        - logger.log:
+            format: "command %s"
+            args: [x.c_str()]
 
 sensor:
   - platform: signalk

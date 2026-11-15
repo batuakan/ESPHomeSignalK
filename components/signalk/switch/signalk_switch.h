@@ -15,6 +15,8 @@ class SignalkSwitch : public SignalKSubscriberTemplated<bool>, public switch_::S
   void dump_config() override;
 
   void update() override;
+  /// Lets the server forward PUTs for the path to this switch (meta supportsPut).
+  void enable_put();
 
  protected:
   void write_state(bool state) override;

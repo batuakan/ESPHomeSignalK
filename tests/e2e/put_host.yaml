@@ -1,0 +1,65 @@
+# Host build for tools/e2e_put.sh: a device that handles PUTs, run against a local signalk-server.
+esphome:
+  name: sk-put-e2e
+
+host:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [signalk]
+
+logger:
+  level: DEBUG
+
+signalk:
+  id: sk
+  host: "127.0.0.1"
+  port: 3300
+  username: "admin"
+  password: "e2e-secret"
+  # Claim the paths: the server forwards a PUT only to the client that publishes the path.
+  on_connect:
+    - signalk.publish_delta:
+        id: sk
+        path: "test.put.steps"
+        value: 0.0
+    - signalk.publish_delta:
+        id: sk
+        path: "test.put.mode"
+        type: boolean
+        value: !lambda "return false;"
+    - switch.turn_off: e2e_switch
+  on_put:
+    - path: "test.put.steps"
+      type: number
+      then:
+        - if:
+            condition:
+              lambda: "return x > 100;"
+            then:
+              - signalk.put_reply:
+                  id: sk
+                  request_id: !lambda "return request_id;"
+                  status_code: 400
+                  message: "Too many"
+            else:
+              - signalk.publish_delta:
+                  id: sk
+                  path: "test.put.steps"
+                  value: !lambda "return x;"
+    - path: "test.put.mode"
+      type: boolean
+      reply: manual
+      then:
+        - delay: 300ms
+        - signalk.put_reply:
+            id: sk
+            request_id: !lambda "return request_id;"
+            message: !lambda 'return x ? std::string("on") : std::string("off");'
+
+switch:
+  - platform: signalk
+    id: e2e_switch
+    path: test.put.switch

@@ -4,6 +4,8 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <type_traits>
 #include <set>
 #include <vector>
 #include <variant>
@@ -18,6 +20,7 @@
 #include "subscription_set.h"
 #include "server_discovery.h"
 #include "access_request.h"
+#include "put_handling.h"
 
 namespace esphome {
 namespace signalk {
@@ -43,6 +46,15 @@ using SignalKListener = std::function<void(const std::string &path, JsonVariantC
 /// Called on the main loop when a delta says that the metadata of a subscribed path changed.
 using SignalKMetaListener = std::function<void(const std::string &path)>;
 
+/// The answer to a PUT the server forwarded to the device.
+struct PutReply {
+  int status_code{200};
+  std::string message;
+};
+/// Handles a PUT the server forwards for a path (main loop). Return the reply, or nullopt to answer later
+/// with SignalK::put_reply() (within 60 s, after that the server has replied 504 itself).
+using SignalKPutHandler = std::function<std::optional<PutReply>(const std::string &request_id, JsonVariantConst value)>;
+
 class SignalK : public PollingComponent {
  public:
   void dump_config() override;
@@ -53,6 +65,20 @@ class SignalK : public PollingComponent {
   /// Sends a meta delta for `path`; returns false when it could not be sent.
   bool publish_meta_delta(const std::string &path, JsonVariantConst meta);
   void put_request(const std::string &path, const std::variant<double, std::string, bool> &value);
+
+  /// Handles PUTs for `path` on the device. The server forwards a PUT only to a client that has published
+  /// the path with a `$source`, so publish it after every (re)connect (see add_on_connect_callback()).
+  void add_put_handler(const std::string &path, SignalKPutHandler handler);
+  bool has_put_handler(const std::string &path) const { return put_handlers_.count(path) > 0; }
+  /// Answers a forwarded PUT. Only the first answer to a request is sent; late ones are dropped.
+  void put_reply(const std::string &request_id, int status_code, const std::string &message = "");
+  /// The id of the last forwarded PUT, for answering it from an automation.
+  const std::string &last_put_request_id() const { return last_put_request_id_; }
+  /// `$source` of the deltas the device publishes; empty sends none (the server then can't forward PUTs).
+  void set_source(std::string source) { source_ = std::move(source); }
+  const std::string &get_source() const { return source_; }
+  /// Called on the main loop each time the stream (re)connects, after the subscriptions are sent.
+  void add_on_connect_callback(std::function<void()> callback) { connect_callbacks_.push_back(std::move(callback)); }
   void send_access_request();
   void poll_access_request();
   /// The admin approved (token) or denied the access request.
@@ -164,6 +190,13 @@ class SignalK : public PollingComponent {
   void server_unreachable();
   void sync_metadata();
   bool sync_metadata_of(SignalkSubscriber *subscriber);
+  void handle_forwarded_put(const ForwardedPut &put);
+
+  std::map<std::string, SignalKPutHandler> put_handlers_;
+  PendingPuts pending_puts_;
+  std::string last_put_request_id_;
+  std::string source_;
+  std::vector<std::function<void()>> connect_callbacks_;
 
   std::string host_;
   // The host was found with mDNS (not configured), so it is looked up again after a disconnect.
@@ -315,6 +348,70 @@ template<typename... Ts> class ForgetServerAction : public Action<Ts...> {
  public:
   explicit ForgetServerAction(SignalK *parent) : parent_(parent) {}
   void play(const Ts &...x) override { this->parent_->forget_server(); }
+
+ protected:
+  SignalK *parent_;
+};
+
+/// on_put: runs an automation for each PUT the server forwards for a path, with the value as `x` and the
+/// request id as `request_id`. T is float (converted from SI with `unit`), bool or std::string.
+template<typename T> class PutTrigger : public Trigger<T, std::string> {
+ public:
+  PutTrigger(SignalK *parent, const std::string &path, bool auto_reply, Unit unit) {
+    parent->add_put_handler(
+        path,
+        [this, auto_reply, unit](const std::string &request_id, JsonVariantConst value) -> std::optional<PutReply> {
+          T x{};
+          if (!convert(value, unit, x))
+            return PutReply{400, "Invalid value"};
+          this->trigger(x, request_id);
+          // An automation that answered (signalk.put_reply) already took the request.
+          if (auto_reply)
+            return PutReply{200, ""};
+          return std::nullopt;
+        });
+  }
+
+ protected:
+  static bool convert(JsonVariantConst value, Unit unit, T &out) {
+    if constexpr (std::is_same_v<T, float>) {
+      double n;
+      if (!put_value_number(value, n))
+        return false;
+      out = convert_from_base(static_cast<float>(n), unit);
+      return true;
+    } else if constexpr (std::is_same_v<T, bool>) {
+      return put_value_bool(value, out);
+    } else {
+      out = put_value_text(value);
+      return true;
+    }
+  }
+};
+
+/// on_connect: runs each time the stream (re)connects, e.g. to publish the paths the device handles PUTs for.
+class ConnectTrigger : public Trigger<> {
+ public:
+  explicit ConnectTrigger(SignalK *parent) {
+    parent->add_on_connect_callback([this]() { this->trigger(); });
+  }
+};
+
+/// signalk.put_reply: answers a forwarded PUT (for on_put with `reply: manual`, or to refuse one early).
+template<typename... Ts> class PutReplyAction : public Action<Ts...> {
+ public:
+  explicit PutReplyAction(SignalK *parent) : parent_(parent) {}
+  TEMPLATABLE_VALUE(std::string, request_id)
+  TEMPLATABLE_VALUE(int, status_code)
+  TEMPLATABLE_VALUE(std::string, message)
+
+  void play(const Ts &...x) override {
+    std::string id =
+        this->request_id_.has_value() ? this->request_id_.value(x...) : this->parent_->last_put_request_id();
+    int code = this->status_code_.has_value() ? this->status_code_.value(x...) : 200;
+    std::string message = this->message_.has_value() ? this->message_.value(x...) : std::string();
+    this->parent_->put_reply(id, code, message);
+  }
 
  protected:
   SignalK *parent_;
