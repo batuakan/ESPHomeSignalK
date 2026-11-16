@@ -1,12 +1,18 @@
 #ifdef USE_ESP32_FRAMEWORK_ESP_IDF
 #pragma once
-#include <string>
+#include <atomic>
 #include <cstdint>
+#include <deque>
+#include <mutex>
+#include <string>
 
 #include "signalk.h"
 #include "signalk_mdns_esp32.h"
 #include "esp_websocket_client.h"
 #include "esp_http_client.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 namespace esphome {
 namespace signalk {
@@ -31,13 +37,26 @@ class SignalKEspIdf : public SignalK {
   void handle_websocket_event(int32_t event_id, esp_websocket_event_data_t *data);
 
  private:
+  /// The sender task: writes queued messages, so a slow link never blocks the main loop.
+  static void sender_task_entry(void *arg);
+  void sender_loop();
+  void clear_outbox();
+
   SignalKMdnsEsp32 mdns_;
   esp_websocket_client_handle_t websocket_client{nullptr};
   bool isconnected_;
   std::string auth_header_;
-  // Main-loop send backoff while the link is stalled (see send()).
-  uint32_t send_blocked_until_{0};
-  uint32_t send_dropped_{0};
+
+  // Outgoing messages, from send() (main loop) to the sender task, oldest first.
+  std::mutex outbox_mutex_;
+  std::deque<std::string> outbox_;
+  size_t outbox_bytes_{0};
+  // Messages dropped (outbox full, or the write failed); reported from the main loop.
+  std::atomic<uint32_t> outbox_dropped_{0};
+  TaskHandle_t sender_task_{nullptr};
+  // Held by the sender task while it writes, and by connect()/disconnect() while they
+  // create or destroy the client, so a write never runs on a destroyed client.
+  SemaphoreHandle_t client_mutex_{nullptr};
 
   // Reassembly of text messages delivered in several chunks (websocket task only).
   std::string frame_;

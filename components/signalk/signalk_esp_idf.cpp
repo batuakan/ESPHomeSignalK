@@ -29,11 +29,15 @@ static const int PING_INTERVAL_S = 2;
 static const int PONG_TIMEOUT_S = 6;
 // Delay before the client reconnects after losing the connection.
 static const int RECONNECT_TIMEOUT_MS = 2000;
-// send() runs in the ESPHome main loop: it waits at most this long for the client lock and the write.
-static const uint32_t SEND_TIMEOUT_MS = 50;
-// After a send that failed on a connection that is still up (the link is stalled), further sends are
-// skipped for this long, so a stall costs the main loop at most SEND_TIMEOUT_MS per period.
-static const uint32_t SEND_BACKOFF_MS = 1000;
+// send() runs in the ESPHome main loop and only queues the message; a sender task writes it. A write
+// in the main loop either blocks the loop (long timeout) or, with a short one, aborts the connection
+// whenever the link is merely slow: the client treats a timed-out write as a dead connection.
+// The sender writes with the network timeout, so only a link that is really stuck is dropped.
+// Bounds on the queue; when full, the oldest messages are dropped first.
+static const size_t OUTBOX_MAX_MESSAGES = 32;
+static const size_t OUTBOX_MAX_BYTES = 16 * 1024;
+static const uint32_t SENDER_TASK_STACK = 4096;
+static const UBaseType_t SENDER_TASK_PRIORITY = 4;
 
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
   static_cast<SignalKEspIdf *>(handler_args)
@@ -46,6 +50,8 @@ void SignalKEspIdf::handle_websocket_event(int32_t event_id, esp_websocket_event
       this->signal_connected();
       break;
     case WEBSOCKET_EVENT_DISCONNECTED:
+      // Queued messages were for the old connection; sent after a reconnect they would be stale.
+      this->clear_outbox();
       this->signal_disconnected();
       break;
     case WEBSOCKET_EVENT_DATA: {
@@ -115,9 +121,20 @@ bool SignalKEspIdf::connect(const std::string &path) {
   websocket_cfg.ping_interval_sec = PING_INTERVAL_S;
   websocket_cfg.pingpong_timeout_sec = PONG_TIMEOUT_S;
   websocket_cfg.reconnect_timeout_ms = RECONNECT_TIMEOUT_MS;
-  send_blocked_until_ = 0;
 
+  if (client_mutex_ == nullptr)
+    client_mutex_ = xSemaphoreCreateMutex();
+  if (sender_task_ == nullptr && xTaskCreate(sender_task_entry, "signalk_tx", SENDER_TASK_STACK, this,
+                                             SENDER_TASK_PRIORITY, &sender_task_) != pdPASS) {
+    sender_task_ = nullptr;
+    ESP_LOGE(TAG, "Could not start the WebSocket sender task");
+    return false;
+  }
+
+  this->clear_outbox();
+  xSemaphoreTake(client_mutex_, portMAX_DELAY);
   websocket_client = esp_websocket_client_init(&websocket_cfg);
+  xSemaphoreGive(client_mutex_);
 
   esp_websocket_register_events(websocket_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, this);
   isconnected_ = esp_websocket_client_start(websocket_client) == ESP_OK;
@@ -128,11 +145,48 @@ bool SignalKEspIdf::connect(const std::string &path) {
 void SignalKEspIdf::disconnect() {
   if (websocket_client == nullptr)
     return;
+  // Waits for a write in progress (at most the network timeout).
+  xSemaphoreTake(client_mutex_, portMAX_DELAY);
   esp_websocket_client_stop(websocket_client);
   esp_websocket_client_destroy(websocket_client);
   websocket_client = nullptr;
+  xSemaphoreGive(client_mutex_);
+  this->clear_outbox();
   isconnected_ = false;
   this->signal_disconnected();
+}
+
+void SignalKEspIdf::clear_outbox() {
+  std::lock_guard<std::mutex> lock(outbox_mutex_);
+  outbox_.clear();
+  outbox_bytes_ = 0;
+}
+
+void SignalKEspIdf::sender_task_entry(void *arg) { static_cast<SignalKEspIdf *>(arg)->sender_loop(); }
+
+void SignalKEspIdf::sender_loop() {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    for (;;) {
+      std::string msg;
+      {
+        std::lock_guard<std::mutex> lock(outbox_mutex_);
+        if (outbox_.empty())
+          break;
+        msg = std::move(outbox_.front());
+        outbox_.pop_front();
+        outbox_bytes_ -= msg.size();
+      }
+      xSemaphoreTake(client_mutex_, portMAX_DELAY);
+      bool sent = websocket_client != nullptr && esp_websocket_client_is_connected(websocket_client) &&
+                  esp_websocket_client_send_text(websocket_client, msg.c_str(), msg.size(),
+                                                 pdMS_TO_TICKS(NETWORK_TIMEOUT_MS)) >= 0;
+      xSemaphoreGive(client_mutex_);
+      // A failed write aborts the connection; the disconnect event clears what is still queued.
+      if (!sent)
+        outbox_dropped_++;
+    }
+  }
 }
 
 DiscoveryPoll SignalKEspIdf::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
@@ -142,26 +196,22 @@ bool SignalKEspIdf::send(const std::string &msg) {
     ESP_LOGW(TAG, "WebSocket client not connected, cannot send message");
     return false;
   }
-  const uint32_t now = sk_millis();
-  if (send_blocked_until_ != 0 && (int32_t) (now - send_blocked_until_) < 0) {
-    send_dropped_++;
+  if (uint32_t dropped = outbox_dropped_.exchange(0))
+    ESP_LOGW(TAG, "WebSocket link slow: %u message(s) dropped", (unsigned) dropped);
+  if (sender_task_ == nullptr)
     return false;
+  {
+    std::lock_guard<std::mutex> lock(outbox_mutex_);
+    outbox_.push_back(msg);
+    outbox_bytes_ += msg.size();
+    while (outbox_.size() > 1 && (outbox_.size() > OUTBOX_MAX_MESSAGES || outbox_bytes_ > OUTBOX_MAX_BYTES)) {
+      outbox_bytes_ -= outbox_.front().size();
+      outbox_.pop_front();
+      outbox_dropped_++;
+    }
   }
-  send_blocked_until_ = 0;
-  if (send_dropped_ > 0) {
-    ESP_LOGW(TAG, "WebSocket link stalled: %u message(s) dropped", (unsigned) send_dropped_);
-    send_dropped_ = 0;
-  }
-  int sent = esp_websocket_client_send_text(websocket_client, msg.c_str(), msg.size(), pdMS_TO_TICKS(SEND_TIMEOUT_MS));
-  if (sent >= 0)
-    return true;
-  // A failed write aborts the connection (the disconnect event follows). Still connected means the
-  // client task holds the lock, blocked on the link: back off instead of waiting on every message.
-  if (esp_websocket_client_is_connected(websocket_client)) {
-    send_blocked_until_ = (now + SEND_BACKOFF_MS) | 1;  // 0 means "not blocked"
-    send_dropped_++;
-  }
-  return false;
+  xTaskNotifyGive(sender_task_);
+  return true;
 }
 
 HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg) {
