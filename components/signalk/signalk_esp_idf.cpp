@@ -18,6 +18,23 @@ static const size_t MAX_MESSAGE_BYTES = 32 * 1024;
 // Largest HTTP response body kept by get()/post() (access requests, login, validation).
 static const size_t MAX_HTTP_RESPONSE_BYTES = 4096;
 
+// Link supervision. The esp_websocket_client defaults (10 s network timeout, PING every 10 s, 120 s
+// without PONG, 10 s before a reconnect) turn a short Wi-Fi stall into half a minute offline: the
+// client task blocks in a write for the full network timeout while holding the client lock, and a
+// server that stops answering is only noticed after two minutes.
+// A blocked read or write is aborted after this long.
+static const int NETWORK_TIMEOUT_MS = 4000;
+// A PING every PING_INTERVAL_S; no PONG for PONG_TIMEOUT_S aborts the connection.
+static const int PING_INTERVAL_S = 2;
+static const int PONG_TIMEOUT_S = 6;
+// Delay before the client reconnects after losing the connection.
+static const int RECONNECT_TIMEOUT_MS = 2000;
+// send() runs in the ESPHome main loop: it waits at most this long for the client lock and the write.
+static const uint32_t SEND_TIMEOUT_MS = 50;
+// After a send that failed on a connection that is still up (the link is stalled), further sends are
+// skipped for this long, so a stall costs the main loop at most SEND_TIMEOUT_MS per period.
+static const uint32_t SEND_BACKOFF_MS = 1000;
+
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
   static_cast<SignalKEspIdf *>(handler_args)
       ->handle_websocket_event(event_id, static_cast<esp_websocket_event_data_t *>(event_data));
@@ -94,6 +111,12 @@ bool SignalKEspIdf::connect(const std::string &path) {
     websocket_cfg.headers = auth_header_.c_str();
   }
 
+  websocket_cfg.network_timeout_ms = NETWORK_TIMEOUT_MS;
+  websocket_cfg.ping_interval_sec = PING_INTERVAL_S;
+  websocket_cfg.pingpong_timeout_sec = PONG_TIMEOUT_S;
+  websocket_cfg.reconnect_timeout_ms = RECONNECT_TIMEOUT_MS;
+  send_blocked_until_ = 0;
+
   websocket_client = esp_websocket_client_init(&websocket_cfg);
 
   esp_websocket_register_events(websocket_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, this);
@@ -119,9 +142,26 @@ bool SignalKEspIdf::send(const std::string &msg) {
     ESP_LOGW(TAG, "WebSocket client not connected, cannot send message");
     return false;
   }
-  const TickType_t xDelay = 500;
-  esp_websocket_client_send_text(websocket_client, msg.c_str(), msg.size(), xDelay);
-  return true;
+  const uint32_t now = sk_millis();
+  if (send_blocked_until_ != 0 && (int32_t) (now - send_blocked_until_) < 0) {
+    send_dropped_++;
+    return false;
+  }
+  send_blocked_until_ = 0;
+  if (send_dropped_ > 0) {
+    ESP_LOGW(TAG, "WebSocket link stalled: %u message(s) dropped", (unsigned) send_dropped_);
+    send_dropped_ = 0;
+  }
+  int sent = esp_websocket_client_send_text(websocket_client, msg.c_str(), msg.size(), pdMS_TO_TICKS(SEND_TIMEOUT_MS));
+  if (sent >= 0)
+    return true;
+  // A failed write aborts the connection (the disconnect event follows). Still connected means the
+  // client task holds the lock, blocked on the link: back off instead of waiting on every message.
+  if (esp_websocket_client_is_connected(websocket_client)) {
+    send_blocked_until_ = (now + SEND_BACKOFF_MS) | 1;  // 0 means "not blocked"
+    send_dropped_++;
+  }
+  return false;
 }
 
 HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg) {
