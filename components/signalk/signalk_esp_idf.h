@@ -35,6 +35,9 @@ class SignalKEspIdf : public SignalK {
   esp_websocket_client_handle_t websocket_client{nullptr};
   bool isconnected_;
   std::string auth_header_;
+  // Main-loop send backoff while the link is stalled (see send()).
+  uint32_t send_blocked_until_{0};
+  uint32_t send_dropped_{0};
 
   // Reassembly of text messages delivered in several chunks (websocket task only).
   std::string frame_;
