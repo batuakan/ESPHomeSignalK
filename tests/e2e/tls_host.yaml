@@ -1,0 +1,38 @@
+# Host build for tools/e2e_tls.sh: a device that talks to signalk-server over HTTPS and WSS (`tls: true`),
+# with the server's certificate pinned on first use.
+esphome:
+  name: sk-tls-e2e
+
+host:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [signalk]
+
+logger:
+  level: DEBUG
+
+signalk:
+  id: sk
+  host: "127.0.0.1"
+  port: 3311
+  tls: true
+  username: "admin"
+  password: "e2e-secret"
+  # Written over WSS; the server sends it back to the subscription below.
+  on_connect:
+    - signalk.publish_delta:
+        id: sk
+        path: "test.tls.value"
+        value: 42.0
+
+sensor:
+  - platform: signalk
+    id: tls_value
+    path: test.tls.value
+    on_value:
+      - logger.log:
+          format: "e2e: test.tls.value is %.0f"
+          args: [x]

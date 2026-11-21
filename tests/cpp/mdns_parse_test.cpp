@@ -26,11 +26,11 @@ struct Reply {
   size_t local_at{0};    // offset of the trailing "local" label
   uint16_t answers{0}, additional{0};
 
-  Reply() : b(12, 0) {
+  explicit Reply(const std::string &service_label = "_signalk-http") : b(12, 0) {
     b[2] = 0x84;  // response, authoritative
     b[5] = 1;     // one question
     service_at = b.size();
-    label("_signalk-http");
+    label(service_label);
     label("_tcp");
     local_at = b.size();
     label("local");
@@ -410,6 +410,68 @@ int main() {
     ServerCandidate not_signalk = bound;
     not_signalk.swname = "some-web-server";
     CHECK(!pick_bound_server({not_signalk}, bound, none, out, match));
+  }
+
+  // A server with SSL turned on answers as _signalk-https: only the TLS search reads it, and marks it.
+  {
+    Reply r("_signalk-https");
+    r.srv("Boat", "boatpc", 3443);
+    r.txt("Boat", {"swname=signalk-server", "roles=master, main", "self=urn:mrn:signalk:uuid:abc"});
+    r.a("boatpc", 192, 168, 0, 50);
+    const auto &packet = r.done();
+    std::vector<ServerCandidate> found;
+    mdns_parse_response(packet.data(), packet.size(), SERVICE, found);
+    CHECK(found.empty());
+    mdns_parse_response(packet.data(), packet.size(), SIGNALK_MDNS_SERVICE_TLS, found, true);
+    CHECK(found.size() == 1 && found[0].tls && found[0].port == 3443 && found[0].address == "192.168.0.50");
+    // plain replies stay plain, and the same address and port once with and once without TLS are two servers
+    auto plain = parse(typical("Boat", "boatpc", 3443));
+    CHECK(plain.size() == 1 && !plain[0].tls);
+    add_unique(found, plain[0]);
+    CHECK(found.size() == 2);
+  }
+
+  // Choosing: the main server first, then one with TLS, then the lowest address.
+  {
+    ServerCandidate plain;
+    plain.hostname = "boatpc";
+    plain.address = "192.168.0.10";
+    plain.port = 3000;
+    plain.roles = "master, main";
+    ServerCandidate secure = plain;
+    secure.address = "192.168.0.20";
+    secure.port = 3443;
+    secure.tls = true;
+    CHECK(pick_server({plain, secure})->tls);
+    CHECK(pick_server({secure, plain})->tls);
+    ServerCandidate aux = secure;
+    aux.roles = "master, aux";
+    CHECK(!pick_server({plain, aux})->tls);
+  }
+
+  // Never from TLS back to plain HTTP: a plain server with the bound one's address, name and vessel id is
+  // not taken (anyone on the network can answer as it, and the token would travel in the clear).
+  {
+    ServerCandidate bound;
+    bound.hostname = "boatpc";
+    bound.address = "192.168.0.124";
+    bound.port = 3443;
+    bound.self = "urn:mrn:signalk:uuid:abc";
+    bound.tls = true;
+    ServerCandidate downgraded = bound;
+    downgraded.tls = false;
+    ServerCandidate out;
+    ServerMatch match = ServerMatch::NONE;
+    const std::vector<ServerCandidate> none;
+    CHECK(!allowed_transport(downgraded, bound));
+    CHECK(!pick_bound_server({downgraded}, bound, none, out, match));
+    CHECK(pick_bound_server({downgraded, bound}, bound, none, out, match) && out.tls && match == ServerMatch::ADDRESS);
+    // the other way is how a server that turned SSL on is found again: by its vessel id, on its SSL port
+    ServerCandidate was_plain = bound;
+    was_plain.tls = false;
+    was_plain.port = 3000;
+    CHECK(allowed_transport(bound, was_plain));
+    CHECK(pick_bound_server({bound}, was_plain, none, out, match) && out.tls && match == ServerMatch::VESSEL);
   }
 
   if (failures == 0)

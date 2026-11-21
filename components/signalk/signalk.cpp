@@ -120,6 +120,15 @@ void SignalK::enqueue_message(std::string &&msg) {
 // -------- Main loop --------
 
 void SignalK::loop() {
+  Fingerprint fp;
+  if (tls_trust().take_learned(fp)) {
+    ESP_LOGI(TAG, "Pinned the certificate of SignalK server %s:%u, SHA-256 %s", host_.c_str(), port_,
+             format_fingerprint(fp).c_str());
+    if (!trying_server_)  // a server being tried is saved, with its pin, once it accepts the token
+      save_tls();
+  }
+  if (tls_trust().take_refused(fp))
+    this->certificate_refused(fp);
   if (disconnected_event_.exchange(false)) {
     this->on_disconnected();
   }
@@ -204,18 +213,29 @@ void SignalK::setup() {
   ESP_LOGD(TAG, "Setup");
 
   host_configured_ = !host_.empty();
+  bool saved_tls = false, saved_pinned = false;
+  Fingerprint saved_pin{};
+  const bool have_tls = load_tls(saved_tls, saved_pinned, saved_pin);
+  if (host_configured_) {
+    tls_ = tls_mode_ == SignalKTlsMode::ON;
+    // A pin saved for this host over TLS; a record from before TLS was turned on pins anew.
+    tls_trust().set(tls_ && have_tls && saved_tls && saved_pinned, saved_pin);
+  }
   ServerCandidate saved;
   if (!host_configured_ && load_server(saved)) {
     // Bound to a server: only it is accepted when it is looked up, the token (or the login) must not go to
     // another server that happens to be on the network. Found again like after a disconnect, with the
     // saved address as the fallback.
+    saved.tls = have_tls && saved_tls;
+    tls_ = saved.tls;
+    tls_trust().set(tls_ && saved_pinned, saved_pin);
     host_ = saved.connect_host();
     port_ = saved.port;
     discovered_server_ = saved;
     host_discovered_ = true;
     rediscovering_ = true;
     rediscovery_started_at_ = sk_millis();
-    ESP_LOGI(TAG, "Bound to SignalK server %s:%u", host_.c_str(), port_);
+    ESP_LOGI(TAG, "Bound to SignalK server %s:%u%s", host_.c_str(), port_, tls_ ? " (TLS)" : "");
   }
 
   if (!this->user_name_.empty() && !this->user_password_.empty()) {
@@ -293,7 +313,15 @@ void SignalK::bind_server(const ServerCandidate &server) {
   SavedServer now{}, before{};  // a server too long to keep stays an empty record
   to_saved_server(server, now);
   to_saved_server(discovered_server_, before);
-  const bool changed = !host_discovered_ || !same_saved_server(now, before);
+  // Another server than the bound one (not the same one at a new address) has a certificate of its own.
+  const bool other_server = !host_discovered_ || server.tls != discovered_server_.tls ||
+                            match_server(server, discovered_server_) < ServerMatch::HOST_NAME;
+  const bool changed = other_server || !same_saved_server(now, before);
+  if (other_server) {
+    tls_trust().clear();
+    tls_refused_ = false;
+  }
+  tls_ = server.tls;
   host_ = server.connect_host();
   port_ = server.port;
   discovered_server_ = server;
@@ -307,8 +335,16 @@ void SignalK::bind_server(const ServerCandidate &server) {
 
 void SignalK::try_server(const ServerCandidate &server) {
   // Kept to come back to; while trying, nothing is saved, so a restart is bound to it again.
-  if (!trying_server_)
+  if (!trying_server_) {
     bound_server_ = discovered_server_;
+    bound_pinned_ = tls_trust().pinned();
+    bound_pin_ = tls_trust().pin();
+  }
+  // A server that turned SSL on is found with another port: its certificate is pinned while it is tried, and
+  // saved once it accepts the token. Both over TLS: the pin stays, the same certificate is the same server.
+  if (!server.tls || !bound_server_.tls)
+    tls_trust().clear();
+  tls_ = server.tls;
   ESP_LOGW(TAG,
            "SignalK server %s:%u has this vessel's id but not the address or host name of %s:%u; trying it, "
            "the token is kept if it refuses it",
@@ -326,7 +362,7 @@ void SignalK::confirm_server() {
   if (!trying_server_)
     return;
   trying_server_ = false;
-  ESP_LOGI(TAG, "Bound to SignalK server %s:%u", host_.c_str(), port_);
+  ESP_LOGI(TAG, "Bound to SignalK server %s:%u%s", host_.c_str(), port_, tls_ ? " (TLS)" : "");
   save_server();
 }
 
@@ -348,6 +384,9 @@ void SignalK::back_to_bound_server() {
   discovered_server_ = bound_server_;
   host_ = bound_server_.connect_host();
   port_ = bound_server_.port;
+  tls_ = bound_server_.tls;
+  tls_trust().set(bound_pinned_, bound_pin_);
+  tls_refused_ = false;
   trying_server_ = false;
 }
 
@@ -385,10 +424,21 @@ void SignalK::choose_server(const ServerCandidate &server) {
 }
 
 void SignalK::forget_server() {
-  if (host_configured_)
+  if (host_configured_) {
+    if (!tls_)
+      return;
+    ESP_LOGI(TAG, "Forgetting the SignalK server's certificate; the next connection pins it again");
+    disconnect();
+    tls_trust().clear();
+    tls_refused_ = false;
+    save_tls();
     return;
+  }
   ESP_LOGI(TAG, "Forgetting the SignalK server and its token");
   disconnect();
+  tls_trust().clear();
+  tls_refused_ = false;
+  tls_ = false;
   trying_server_ = false;
   rejected_servers_.clear();
   token_.clear();
@@ -430,6 +480,10 @@ void SignalK::update() {
   if (!this->resolve_server())
     return;
   this->poll_scan();
+  // The server presented another certificate: the token must not go to it. The user forgets the server (or
+  // chooses another) to pin again.
+  if (tls_refused_)
+    return;
   if (prefered_access_method_ == SignalKPreferedAccessMethod::REQUEST_ACCESS) {
     if (this->request_access_state_ == SignalKRequestAccessState::HASTOKEN)
       this->validate_token();
@@ -721,12 +775,67 @@ void SignalK::save_server() {
   // Written now: it changes only when another server is chosen, and a restart must find it.
   if (!pref.save(&record) || !global_preferences->sync())
     ESP_LOGE(TAG, "Failed to save the SignalK server");
+  save_tls();
 }
 
 bool SignalK::load_server(ServerCandidate &out) {
   SavedServer record{};
   auto pref = global_preferences->make_preference<SavedServer>(SERVER_PREF_KEY, true);
   return pref.load(&record) && from_saved_server(record, out);
+}
+
+// Next to the server (10003): TLS and the pinned certificate. Devices saved before TLS have no record.
+static const uint32_t TLS_PREF_KEY = 10004;
+
+void SignalK::save_tls() {
+  SavedTls record = to_saved_tls(tls_, tls_trust().pinned(), tls_trust().pin());
+  auto pref = global_preferences->make_preference<SavedTls>(TLS_PREF_KEY, true);
+  // Written now: a pin lost to a restart is learned again from whatever answers then.
+  if (!pref.save(&record) || !global_preferences->sync())
+    ESP_LOGE(TAG, "Failed to save the SignalK server's certificate");
+}
+
+bool SignalK::load_tls(bool &tls, bool &pinned, Fingerprint &pin) {
+  SavedTls record{};
+  auto pref = global_preferences->make_preference<SavedTls>(TLS_PREF_KEY, true);
+  return pref.load(&record) && from_saved_tls(record, tls, pinned, pin);
+}
+
+void SignalK::certificate_refused(const Fingerprint &got) {
+  if (trying_server_) {
+    // Only the vessel id matched, and it isn't the server whose certificate is pinned.
+    ESP_LOGW(TAG, "SignalK server %s:%u presented another certificate than the pinned one (SHA-256 %s)",
+             host_.c_str(), port_, format_fingerprint(got).c_str());
+    refuse_tried_server();
+    return;
+  }
+  if (!tls_refused_) {
+    ESP_LOGE(TAG,
+             "SignalK server %s:%u presented another certificate: SHA-256 %s, pinned %s. Nothing is sent to it; "
+             "forget the server to trust the new certificate",
+             host_.c_str(), port_, format_fingerprint(got).c_str(), format_fingerprint(tls_trust().pin()).c_str());
+  }
+  tls_refused_ = true;
+  tls_refused_fp_ = got;
+  disconnect();
+}
+
+std::string SignalK::base_url() const {
+  char port[8];
+  snprintf(port, sizeof(port), ":%u", static_cast<unsigned>(port_));
+  return (tls_ ? "https://" : "http://") + host_ + port;
+}
+
+SignalKTlsState SignalK::tls_state() const {
+  if (!tls_)
+    return SignalKTlsState::PLAIN;
+  if (tls_refused_)
+    return SignalKTlsState::REFUSED;
+  return tls_trust().pinned() ? SignalKTlsState::PINNED : SignalKTlsState::PINNING;
+}
+
+std::string SignalK::tls_fingerprint(size_t bytes) const {
+  return tls_ && tls_trust().pinned() ? format_fingerprint(tls_trust().pin(), bytes) : std::string();
 }
 
 // The link of the access request waiting for approval, so a restart asks it again. Empty when none is.

@@ -2,6 +2,9 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_http_client.h"
+#include "mbedtls/sha256.h"
+#include "mbedtls/ssl.h"
+#include "mbedtls/x509_crt.h"
 #include <algorithm>
 #include <cstdio>
 
@@ -17,6 +20,37 @@ static const char *const TAG = "signalk";
 static const size_t MAX_MESSAGE_BYTES = 32 * 1024;
 // Largest HTTP response body kept by get()/post() (access requests, login, validation).
 static const size_t MAX_HTTP_RESPONSE_BYTES = 4096;
+// get()/post() timeouts; over TLS each request also does a handshake (an ECDHE key exchange).
+static const int HTTP_TIMEOUT_MS = 2000;
+static const int HTTPS_TIMEOUT_MS = 5000;
+
+// -------- Certificate pinning --------
+
+/// mbedTLS calls this for each certificate the server presents, its own last (depth 0). Only that one decides:
+/// it must be the pinned certificate (or becomes it, see TlsTrust). The flags mbedTLS sets (not signed by a
+/// trusted CA, the name, SHA-1) are expected for signalk-server's self-signed certificate and are replaced.
+static int verify_pinned(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+  if (depth > 0) {
+    *flags = 0;
+    return 0;
+  }
+  Fingerprint got{};
+  if (crt == nullptr || mbedtls_sha256(crt->raw.p, crt->raw.len, got.data(), 0) != 0) {
+    *flags = MBEDTLS_X509_BADCERT_OTHER;
+    return 0;
+  }
+  *flags = tls_trust().check(got) ? 0 : MBEDTLS_X509_BADCERT_NOT_TRUSTED;
+  return 0;
+}
+
+esp_err_t tls_attach(void *conf) {
+  // As esp_crt_bundle_attach: an empty CA chain, only so that the handshake reaches the verify callback.
+  static mbedtls_x509_crt no_ca;
+  auto *ssl_conf = static_cast<mbedtls_ssl_config *>(conf);
+  mbedtls_ssl_conf_ca_chain(ssl_conf, &no_ca, nullptr);
+  mbedtls_ssl_conf_verify(ssl_conf, verify_pinned, nullptr);
+  return ESP_OK;
+}
 
 // Link supervision. The esp_websocket_client defaults (10 s network timeout, PING every 10 s, 120 s
 // without PONG, 10 s before a reconnect) turn a short Wi-Fi stall into half a minute offline: the
@@ -106,6 +140,12 @@ bool SignalKEspIdf::connect(const std::string &path) {
   websocket_cfg.host = host_.c_str();
   websocket_cfg.port = port_;
   websocket_cfg.path = path.c_str();
+  if (tls_) {
+    websocket_cfg.transport = WEBSOCKET_TRANSPORT_OVER_SSL;
+    websocket_cfg.crt_bundle_attach = tls_attach;
+  } else {
+    websocket_cfg.transport = WEBSOCKET_TRANSPORT_OVER_TCP;
+  }
   // websocket_cfg.headers = ... // Not available in IDF 4.x, see below
 
   // Set Authorization header if token is present
@@ -189,7 +229,9 @@ void SignalKEspIdf::sender_loop() {
   }
 }
 
-DiscoveryPoll SignalKEspIdf::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
+DiscoveryPoll SignalKEspIdf::poll_discovery(std::vector<ServerCandidate> &found) {
+  return mdns_.poll(found, search_tls());
+}
 
 bool SignalKEspIdf::send(const std::string &msg) {
   if (!esp_websocket_client_is_connected(websocket_client)) {
@@ -216,17 +258,16 @@ bool SignalKEspIdf::send(const std::string &msg) {
 
 HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg) {
   ResponseBuffer responseBuffer;
-  char port_buf[6];
-  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
-  std::string url = "http://" + host_ + ":" + port_buf + path;
+  std::string url = base_url() + path;
   esp_http_client_config_t config = {
       .url = url.c_str(),
       .method = HTTP_METHOD_POST,
-      .timeout_ms = 2000,  // important!
+      .timeout_ms = tls_ ? HTTPS_TIMEOUT_MS : HTTP_TIMEOUT_MS,
       .event_handler = _http_event_handler,
       .user_data = &responseBuffer,
 
   };
+  config.crt_bundle_attach = tls_attach_fn();
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   // if (auth.empty()) {
@@ -253,17 +294,16 @@ HttpResponse SignalKEspIdf::post(const std::string &path, const std::string &msg
 
 HttpResponse SignalKEspIdf::get(const std::string &path) {
   ResponseBuffer responseBuffer;
-  char port_buf[6];
-  snprintf(port_buf, sizeof(port_buf), "%u", static_cast<unsigned>(port_));
-  std::string url = "http://" + host_ + ":" + port_buf + path;
+  std::string url = base_url() + path;
   ESP_LOGD(TAG, "GET %s", url.c_str());
   esp_http_client_config_t config = {
       .url = url.c_str(),
       .method = HTTP_METHOD_GET,
-      .timeout_ms = 2000,  // important!
+      .timeout_ms = tls_ ? HTTPS_TIMEOUT_MS : HTTP_TIMEOUT_MS,
       .event_handler = _http_event_handler,
       .user_data = &responseBuffer,
   };
+  config.crt_bundle_attach = tls_attach_fn();
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (token_.empty()) {

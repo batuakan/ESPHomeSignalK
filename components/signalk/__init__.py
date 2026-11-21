@@ -3,7 +3,11 @@ import re
 
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components.esp32 import add_idf_component, include_builtin_idf_component
+from esphome.components.esp32 import (
+    add_idf_component,
+    include_builtin_idf_component,
+    require_certificate_bundle,
+)
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
@@ -34,6 +38,7 @@ def AUTO_LOAD():
 # DEPENDENCIES = ["wifi"]
 
 CONF_HOST = "host"
+CONF_TLS = "tls"
 CONF_UNIT = "unit"
 CONF_META = "meta"
 CONF_SIGNALK_PATH = "signalk_path"
@@ -76,6 +81,7 @@ else:
 # )
 
 Unit = signalk_ns.enum("Unit")
+SignalKTlsMode = signalk_ns.enum("SignalKTlsMode", is_class=True)
 
 UNIT = {
     "none": Unit.UNIT_NONE,
@@ -311,6 +317,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(signalk),
         cv.Optional(CONF_HOST, default=""): cv.string,
         cv.Optional(CONF_PORT, default=3000): cv.int_,
+        # HTTPS and WSS. Left out: with mDNS, servers with SSL are found too (and preferred); with `host`,
+        # plain HTTP. true: `host` is reached over TLS. false: plain HTTP only. The server's certificate is
+        # pinned on the first connection.
+        cv.Optional(CONF_TLS): cv.boolean,
         cv.Optional(CONF_NAME, default="esp32"): cv.string,
         cv.Optional(CONF_USERNAME, default=""): cv.string,
         cv.Optional(CONF_PASSWORD, default=""): cv.string,
@@ -340,6 +350,15 @@ CONFIG_SCHEMA = cv.Schema(
     # The access/connection state machine runs in update(). Without an interval ESPHome
     # (2026.x) never calls update() on a PollingComponent, so default to 1s.
 ).extend(cv.polling_component_schema("1s"))
+
+
+def _validate_tls(config):
+    if config.get(CONF_TLS) and CORE.is_esp32 and CORE.using_arduino:
+        raise cv.Invalid("'tls: true' needs the esp-idf framework (or the host build)", path=[CONF_TLS])
+    return config
+
+
+CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _validate_tls)
 
 
 PUBLISH_DELTA_SCHEMA = automation.maybe_simple_id(
@@ -480,6 +499,10 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add(var.set_host(config[CONF_HOST]))
     cg.add(var.set_port(config[CONF_PORT]))
+    if CORE.is_esp32 and CORE.using_arduino:
+        cg.add(var.set_tls_mode(SignalKTlsMode.OFF))
+    elif CONF_TLS in config:
+        cg.add(var.set_tls_mode(SignalKTlsMode.ON if config[CONF_TLS] else SignalKTlsMode.OFF))
     cg.add(var.set_device_name(config[CONF_NAME]))
     cg.add(var.set_user_name(config[CONF_USERNAME]))
     cg.add(var.set_user_password(config[CONF_PASSWORD]))
@@ -509,6 +532,10 @@ async def to_code(config):
             cg.add_library("gilmaimon/ArduinoWebsockets", "0.5.4")
         elif not CORE.using_arduino:
             include_builtin_idf_component("esp_http_client")
+            # TLS verifies the server against its pin through crt_bundle_attach, which esp-tls only takes
+            # with the certificate bundle compiled in (the bundle itself is not used). Not for `tls: false`.
+            if config.get(CONF_TLS, True):
+                require_certificate_bundle()
             add_idf_component(
                 name="espressif/esp_websocket_client",
                 ref="1.8.0",

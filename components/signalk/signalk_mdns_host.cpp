@@ -30,8 +30,8 @@ void SignalKMdnsHost::close_socket() {
   }
 }
 
-bool SignalKMdnsHost::send_query() {
-  std::vector<uint8_t> query = mdns_build_query(SIGNALK_MDNS_SERVICE);
+bool SignalKMdnsHost::send_query(const char *service) {
+  std::vector<uint8_t> query = mdns_build_query(service);
   sockaddr_in group{};
   group.sin_family = AF_INET;
   group.sin_port = htons(MDNS_PORT);
@@ -40,7 +40,14 @@ bool SignalKMdnsHost::send_query() {
   return sent == (ssize_t) query.size();
 }
 
-DiscoveryPoll SignalKMdnsHost::poll(std::vector<ServerCandidate> &found) {
+bool SignalKMdnsHost::send_queries() {
+  bool sent = send_query(SIGNALK_MDNS_SERVICE);
+  if (tls_)
+    sent = send_query(SIGNALK_MDNS_SERVICE_TLS) && sent;
+  return sent;
+}
+
+DiscoveryPoll SignalKMdnsHost::poll(std::vector<ServerCandidate> &found, bool tls) {
   found.clear();
   uint32_t now = sk_millis();
 
@@ -57,7 +64,8 @@ DiscoveryPoll SignalKMdnsHost::poll(std::vector<ServerCandidate> &found) {
     sockaddr_in any{};
     any.sin_family = AF_INET;
     any.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(fd_, reinterpret_cast<sockaddr *>(&any), sizeof(any)) != 0 || !send_query()) {
+    tls_ = tls;
+    if (bind(fd_, reinterpret_cast<sockaddr *>(&any), sizeof(any)) != 0 || !send_queries()) {
       ESP_LOGW(TAG, "Could not send the mDNS query (no multicast route?)");
       close_socket();
       return DiscoveryPoll::DONE;
@@ -70,11 +78,14 @@ DiscoveryPoll SignalKMdnsHost::poll(std::vector<ServerCandidate> &found) {
 
   uint8_t buffer[2048];
   ssize_t n;
-  while ((n = recv(fd_, buffer, sizeof(buffer), 0)) > 0)
+  while ((n = recv(fd_, buffer, sizeof(buffer), 0)) > 0) {
     mdns_parse_response(buffer, (size_t) n, SIGNALK_MDNS_SERVICE, found_);
+    if (tls_)
+      mdns_parse_response(buffer, (size_t) n, SIGNALK_MDNS_SERVICE_TLS, found_, true);
+  }
 
   if (!resent_ && now - started_at_ >= SEARCH_WINDOW_MS / 2) {
-    send_query();
+    send_queries();
     resent_ = true;
   }
   if (now - started_at_ < SEARCH_WINDOW_MS)

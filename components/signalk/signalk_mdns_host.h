@@ -15,15 +15,18 @@ namespace signalk {
 class SignalKMdnsHost {
  public:
   ~SignalKMdnsHost();
-  DiscoveryPoll poll(std::vector<ServerCandidate> &found);
+  /// `tls`: also look for servers with SSL (_signalk-https).
+  DiscoveryPoll poll(std::vector<ServerCandidate> &found, bool tls);
 
  private:
-  bool send_query();
+  bool send_query(const char *service);
+  bool send_queries();
   void close_socket();
 
   int fd_{-1};
   uint32_t started_at_{0};
   bool resent_{false};
+  bool tls_{false};
   std::vector<ServerCandidate> found_;
 };
 

@@ -13,6 +13,8 @@ namespace signalk {
 
 /// mDNS service signalk-server advertises for its REST/HTTP API (and the WebSocket on the same port).
 static const char *const SIGNALK_MDNS_SERVICE = "_signalk-http._tcp.local";
+/// The same with SSL turned on in the server: HTTPS and WSS on its SSL port. It then advertises only this.
+static const char *const SIGNALK_MDNS_SERVICE_TLS = "_signalk-https._tcp.local";
 
 /// A SignalK server found with mDNS.
 struct ServerCandidate {
@@ -22,6 +24,7 @@ struct ServerCandidate {
   std::string swname;  ///< TXT "swname", e.g. signalk-server
   std::string roles;   ///< TXT "roles", e.g. "master, main"
   std::string self;    ///< TXT "self", the vessel's self id
+  bool tls{false};     ///< found as _signalk-https: HTTPS and WSS
 
   /// What to connect to. The address is preferred: host names like "Boat PC (2).local" are
   /// common and not resolvable by the device.
@@ -42,8 +45,8 @@ inline bool usable_server(const ServerCandidate &c) {
 }
 
 /// Chooses the server to use when several answered. Servers that identify as something else than
-/// SignalK are skipped, the main server is preferred, and ties are broken by address and port so
-/// that the same server is chosen on every boot. Returns nullptr when there is no usable server.
+/// SignalK are skipped, the main server is preferred, then one with TLS, and ties are broken by address
+/// and port so that the same server is chosen on every boot. Returns nullptr when there is no usable server.
 inline const ServerCandidate *pick_server(const std::vector<ServerCandidate> &found) {
   const ServerCandidate *best = nullptr;
   auto is_main = [](const ServerCandidate &c) { return c.roles.find("main") != std::string::npos; };
@@ -56,6 +59,11 @@ inline const ServerCandidate *pick_server(const std::vector<ServerCandidate> &fo
     }
     if (is_main(c) != is_main(*best)) {
       if (is_main(c))
+        best = &c;
+      continue;
+    }
+    if (c.tls != best->tls) {
+      if (c.tls)
         best = &c;
       continue;
     }
@@ -109,21 +117,27 @@ inline bool listed_server(const ServerCandidate &c, const std::vector<ServerCand
   return false;
 }
 
+/// True when the device may move from `bound` to `c`: never from TLS back to plain HTTP, where the token
+/// would travel in the clear (and anyone on the network can answer as the server).
+inline bool allowed_transport(const ServerCandidate &c, const ServerCandidate &bound) { return c.tls || !bound.tls; }
+
 /// Finds the bound server among the ones found again. The best match wins (the address, then the host name,
 /// then only the vessel id), ties are broken as in pick_server, and servers in `rejected` (ones that refused
-/// the token) are skipped. False when none matches; `out` and `match` are set otherwise.
+/// the token) or without TLS when the bound one had it are skipped. False when none matches; `out` and
+/// `match` are set otherwise.
 inline bool pick_bound_server(const std::vector<ServerCandidate> &found, const ServerCandidate &bound,
                               const std::vector<ServerCandidate> &rejected, ServerCandidate &out, ServerMatch &match) {
   ServerMatch best = ServerMatch::NONE;
   for (const auto &c : found) {
-    if (usable_server(c) && !listed_server(c, rejected))
+    if (usable_server(c) && !listed_server(c, rejected) && allowed_transport(c, bound))
       best = std::max(best, match_server(c, bound));
   }
   if (best == ServerMatch::NONE)
     return false;
   std::vector<ServerCandidate> tier;
   for (const auto &c : found) {
-    if (usable_server(c) && !listed_server(c, rejected) && match_server(c, bound) == best)
+    if (usable_server(c) && !listed_server(c, rejected) && allowed_transport(c, bound) &&
+        match_server(c, bound) == best)
       tier.push_back(c);
   }
   const ServerCandidate *server = pick_server(tier);
@@ -139,7 +153,7 @@ inline bool pick_bound_server(const std::vector<ServerCandidate> &found, const S
 /// several interfaces, several replies). An address-less duplicate is completed with the address.
 inline void add_unique(std::vector<ServerCandidate> &found, const ServerCandidate &candidate) {
   for (auto &c : found) {
-    if (c.port != candidate.port)
+    if (c.port != candidate.port || c.tls != candidate.tls)
       continue;
     bool same = (!c.address.empty() && c.address == candidate.address) ||
                 ((c.address.empty() || candidate.address.empty()) && c.hostname == candidate.hostname);
@@ -153,7 +167,8 @@ inline void add_unique(std::vector<ServerCandidate> &found, const ServerCandidat
 }
 
 /// The server a device is bound to, kept in an ESPHome preference next to its token. The software name and
-/// roles are not kept. Fields are 0-terminated; a record with port 0 means no server is bound.
+/// roles are not kept, TLS is kept in a record of its own (SavedTls, tls_pin.h: devices saved this one before
+/// TLS, and another size would lose it). Fields are 0-terminated; a record with port 0 means no server is bound.
 struct SavedServer {
   char hostname[64];
   char address[16];  ///< IPv4 address as text

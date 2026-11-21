@@ -32,6 +32,9 @@ class SignalKx86 : public SignalK {
   HttpResponse post(const std::string &path, const std::string &msg) override;
 
  private:
+  /// Over TLS: true once the server's certificate is known to be the pinned one (fetched with OpenSSL on the
+  /// first connection, and pinned then), so that ixwebsocket can trust exactly that certificate.
+  bool ensure_certificate();
   SignalKMdnsHost mdns_;
   bool isconnected_;
   ix::WebSocket websocket_client_;
