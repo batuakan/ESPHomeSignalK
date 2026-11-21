@@ -804,8 +804,8 @@ bool SignalK::load_tls(bool &tls, bool &pinned, Fingerprint &pin) {
 void SignalK::certificate_refused(const Fingerprint &got) {
   if (trying_server_) {
     // Only the vessel id matched, and it isn't the server whose certificate is pinned.
-    ESP_LOGW(TAG, "SignalK server %s:%u presented another certificate than the pinned one (SHA-256 %s)",
-             host_.c_str(), port_, format_fingerprint(got).c_str());
+    ESP_LOGW(TAG, "SignalK server %s:%u presented another certificate than the pinned one (SHA-256 %s)", host_.c_str(),
+             port_, format_fingerprint(got).c_str());
     refuse_tried_server();
     return;
   }
