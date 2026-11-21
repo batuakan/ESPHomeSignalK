@@ -109,10 +109,10 @@ inline std::vector<uint8_t> mdns_build_query(const std::string &service) {
 }
 
 /// Reads an mDNS reply and adds every server of `service` it describes (an SRV record with the port and
-/// host, plus the TXT record of the instance and the A record of the host when the reply carries them).
-/// Returns false when the packet is not a well formed reply.
+/// host, plus the TXT record of the instance and the A record of the host when the reply carries them),
+/// marked `tls` (the service is _signalk-https). Returns false when the packet is not a well formed reply.
 inline bool mdns_parse_response(const uint8_t *data, size_t len, const std::string &service,
-                                std::vector<ServerCandidate> &out) {
+                                std::vector<ServerCandidate> &out, bool tls = false) {
   using namespace mdns_detail;
   mdns_detail::Reader r{data, len};
   uint16_t flags, qd, an, ns, ar;
@@ -176,6 +176,7 @@ inline bool mdns_parse_response(const uint8_t *data, size_t len, const std::stri
   for (const auto &s : servers) {
     ServerCandidate c;
     c.port = s.port;
+    c.tls = tls;
     c.hostname = ends_with(lower(s.target), ".local") ? s.target.substr(0, s.target.size() - 6) : s.target;
     auto a = addresses.find(lower(s.target));
     if (a != addresses.end())

@@ -54,7 +54,8 @@ void SignalKArduino::disconnect() {
   signal_disconnected();
 }
 
-DiscoveryPoll SignalKArduino::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found); }
+// No TLS on the Arduino framework (`tls:` is refused there): only plain HTTP servers are looked for.
+DiscoveryPoll SignalKArduino::poll_discovery(std::vector<ServerCandidate> &found) { return mdns_.poll(found, false); }
 
 HttpResponse SignalKArduino::post(const std::string &path, const std::string &msg) {
   HttpResponse resp;

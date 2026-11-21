@@ -20,10 +20,13 @@ static const size_t SEARCH_MAX_RESULTS = 8;
 SignalKMdnsEsp32::~SignalKMdnsEsp32() {
   if (search_ != nullptr)
     mdns_query_async_delete(static_cast<mdns_search_once_t *>(search_));
+  if (search_tls_ != nullptr)
+    mdns_query_async_delete(static_cast<mdns_search_once_t *>(search_tls_));
 }
 
-static ServerCandidate to_candidate(const mdns_result_t *r) {
+static ServerCandidate to_candidate(const mdns_result_t *r, bool tls) {
   ServerCandidate c;
+  c.tls = tls;
   c.hostname = r->hostname != nullptr ? r->hostname : "";
   c.port = r->port;
   for (const mdns_ip_addr_t *a = r->addr; a != nullptr; a = a->next) {
@@ -49,9 +52,26 @@ static ServerCandidate to_candidate(const mdns_result_t *r) {
   return c;
 }
 
-DiscoveryPoll SignalKMdnsEsp32::poll(std::vector<ServerCandidate> &found) {
+/// Collects `search` into `found` once it has finished (and deletes it); false while it still runs.
+static bool collect(void *&search, bool tls, std::vector<ServerCandidate> &found) {
+  if (search == nullptr)
+    return true;
+  auto *s = static_cast<mdns_search_once_t *>(search);
+  mdns_result_t *results = nullptr;
+  uint8_t count = 0;
+  if (!mdns_query_async_get_results(s, 0, &results, &count))
+    return false;
+  for (const mdns_result_t *r = results; r != nullptr; r = r->next)
+    add_unique(found, to_candidate(r, tls));
+  mdns_query_results_free(results);
+  mdns_query_async_delete(s);
+  search = nullptr;
+  return true;
+}
+
+DiscoveryPoll SignalKMdnsEsp32::poll(std::vector<ServerCandidate> &found, bool tls) {
   found.clear();
-  if (search_ == nullptr) {
+  if (!started_) {
     // Fails until the network is up and mDNS has been started (by ESPHome's mdns component).
     search_ = mdns_query_async_new(nullptr, "_signalk-http", "_tcp", MDNS_TYPE_PTR, SEARCH_TIMEOUT_MS,
                                    SEARCH_MAX_RESULTS, nullptr);
@@ -59,20 +79,24 @@ DiscoveryPoll SignalKMdnsEsp32::poll(std::vector<ServerCandidate> &found) {
       ESP_LOGD(TAG, "mDNS search could not be started yet (network or mDNS not ready)");
       return DiscoveryPoll::DONE;
     }
+    if (tls) {
+      search_tls_ = mdns_query_async_new(nullptr, "_signalk-https", "_tcp", MDNS_TYPE_PTR, SEARCH_TIMEOUT_MS,
+                                         SEARCH_MAX_RESULTS, nullptr);
+      if (search_tls_ == nullptr)
+        ESP_LOGD(TAG, "mDNS search for servers with SSL could not be started");
+    }
+    started_ = true;
+    found_.clear();
     return DiscoveryPoll::PENDING;
   }
 
-  auto *search = static_cast<mdns_search_once_t *>(search_);
-  mdns_result_t *results = nullptr;
-  uint8_t count = 0;
-  if (!mdns_query_async_get_results(search, 0, &results, &count))
+  const bool plain_done = collect(search_, false, found_);
+  const bool tls_done = collect(search_tls_, true, found_);
+  if (!plain_done || !tls_done)
     return DiscoveryPoll::PENDING;
-
-  for (const mdns_result_t *r = results; r != nullptr; r = r->next)
-    add_unique(found, to_candidate(r));
-  mdns_query_results_free(results);
-  mdns_query_async_delete(search);
-  search_ = nullptr;
+  started_ = false;
+  found = std::move(found_);
+  found_.clear();
   return DiscoveryPoll::DONE;
 }
 

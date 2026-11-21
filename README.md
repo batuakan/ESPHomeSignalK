@@ -65,7 +65,7 @@ Without a username and password the device asks the server for access (read/writ
 
 #### Finding the server automatically (mDNS)
 
-`host` is optional. If you leave it out, the component looks for the server on your network with mDNS (signalk-server announces itself as `_signalk-http._tcp`) and uses the address and port it finds, so `port` is ignored in that case.
+`host` is optional. If you leave it out, the component looks for the server on your network with mDNS (signalk-server announces itself as `_signalk-http._tcp`, or `_signalk-https._tcp` with SSL turned on, see [HTTPS and WSS](#https-and-wss)) and uses the address and port it finds, so `port` is ignored in that case.
 
 ```yaml
 signalk:
@@ -78,11 +78,11 @@ signalk:
 - The server found is kept in flash (an ESPHome preference, next to the token), and after a restart only that server is accepted, so the token never goes to another one.
 - If the connection is lost, the same server is looked up again for 10 seconds, in case it has a new address; servers that are not the same one are ignored. After that the last known address is tried. The search starts only once the network is up, so a normal boot doesn't search at all.
 - The same server is recognised by, best first: its address and port (with the same host name or vessel id: another machine can get the address), its mDNS host name and port, or only its vessel id. The vessel id alone is not proof, since every server of a vessel has it (a second server on board, or one started with a copied configuration). Such a server is only tried: it isn't saved until it accepts the token, and if it refuses it the token is kept, that server is skipped, and the bound server is looked for again.
-- Discovery trusts your network: the login credentials or the access request go to whatever server answers, over plain HTTP. On a network you do not control, set `host` explicitly.
+- Discovery trusts your network: the login credentials or the access request go to whatever server answers, over plain HTTP unless the server has SSL turned on. On a network you do not control, set `host` explicitly, and turn SSL on in the server.
 
 #### Forgetting the server
 
-To move a device to another server, the `signalk.forget_server` action drops the server and its token. The device then looks for a server again and asks it for access. It does nothing when `host` is set. On a node without a display, a button can call it:
+To move a device to another server, the `signalk.forget_server` action drops the server and its token. The device then looks for a server again and asks it for access. When `host` is set, it only forgets the server's pinned certificate (see below), and with plain HTTP it does nothing. On a node without a display, a button can call it:
 
 ```yaml
 button:
@@ -91,6 +91,36 @@ button:
     on_press:
       - signalk.forget_server: signalk_main  # the id of your signalk: block
 ```
+
+#### HTTPS and WSS
+
+With *SSL* turned on in the server (*Server → Settings*), signalk-server serves HTTPS and WSS on its SSL port (3443 by default), answers its plain port only with a redirect, and announces itself as `_signalk-https._tcp`. The component then talks to it over TLS:
+
+- With mDNS (no `host`), servers with SSL are looked for as well, and preferred. Nothing to configure.
+- With `host`, set `tls: true` and the SSL port:
+
+```yaml
+signalk:
+  host: 10.10.10.1
+  port: 3443
+  tls: true
+```
+
+- `tls: false` turns it off, also for mDNS (only `_signalk-http` is looked for). It needs the esp-idf framework or the `host:` build; on the Arduino framework only plain HTTP is used.
+
+The server's certificate is one it made for itself: self-signed, named `localhost`, signed with SHA-1. No certificate authority vouches for it and its name never matches the server's address, so the component **pins** it instead: the first connection trusts the certificate the server presents and keeps its SHA-256 in flash, next to the server and the token, and every connection after that must present exactly that certificate. The log shows it:
+
+```
+[I][signalk]: Pinned the certificate of SignalK server 192.168.1.20:3443, SHA-256 8B:43:46:FD:...
+```
+
+Compare it with the server's own (`openssl x509 -in ~/.signalk/ssl-cert.pem -noout -fingerprint -sha256`). The same works for a certificate from a real CA, but such a certificate is pinned too, so renewing it (every 90 days with Let's Encrypt) counts as a change.
+
+- **Another certificate** (the server's was regenerated, or someone else answers in its place): the device stops talking to the server and keeps its token. The log shows both fingerprints. To trust the new certificate, forget the server (`signalk.forget_server`); with `host` set that forgets only the pin.
+- **No way back to plain HTTP**: a server once reached over TLS is never used over plain HTTP again, so its token never travels in the clear.
+- A server that turns SSL on is found again on its SSL port by its vessel id: it is tried (the token goes to it over TLS) and pinned once it accepts the token.
+- Memory: each TLS connection needs about 30–40 KB for mbedTLS (its 16 KB receive buffer and its state) while it is open: the stream all the time, and each HTTP request while it runs. On boards with PSRAM, `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` moves that out of internal RAM. Boards without PSRAM may not have it to spare: use `tls: false` there.
+- Other components that send their own requests to the server use `base_url()` and, over HTTPS, the same pin: `crt_bundle_attach = signalk->tls_attach_fn()` in an `esp_http_client` config, or `signalk::tls_trust().ca_pem()` as the CA on the `host:` build.
 
 The token, the server and a pending access request are ESPHome preferences, on the `host:` build too (a file in `ESPHOME_PREFDIR`, by default `~/.esphome/prefs/<name>.prefs`). ESPHome's `factory_reset` erases them along with everything else.
 

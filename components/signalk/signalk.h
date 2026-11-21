@@ -11,6 +11,10 @@
 #include <variant>
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
+#include "esphome/core/defines.h"
+#ifdef USE_ESP32_FRAMEWORK_ESP_IDF
+#include "esp_err.h"
+#endif
 
 // #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/json/json_util.h"
@@ -19,11 +23,31 @@
 #include "unit_conversions.h"
 #include "subscription_set.h"
 #include "server_discovery.h"
+#include "tls_pin.h"
 #include "access_request.h"
 #include "put_handling.h"
 
 namespace esphome {
 namespace signalk {
+
+#ifdef USE_ESP32_FRAMEWORK_ESP_IDF
+/// For `crt_bundle_attach` in an esp_http_client or esp_websocket_client config: verifies the server's
+/// certificate against the device's pin (tls_trust()). Use it for every HTTPS request to the server, so that
+/// all of them trust the same certificate (SignalK::tls_attach() gives it only when the server uses TLS).
+esp_err_t tls_attach(void *conf);
+#endif
+
+/// `tls:` in the configuration. AUTO: with mDNS, servers with SSL are looked for as well and preferred; with
+/// `host`, plain HTTP. ON: `host` is reached over HTTPS and WSS. OFF: only plain HTTP (also with mDNS).
+enum class SignalKTlsMode : uint8_t { AUTO = 0, ON = 1, OFF = 2 };
+
+/// How the device talks to its server, for telling the user.
+enum class SignalKTlsState : uint8_t {
+  PLAIN = 0,    ///< HTTP and WS
+  PINNING = 1,  ///< TLS, the server's certificate is pinned on the next connection
+  PINNED = 2,   ///< TLS with the pinned certificate
+  REFUSED = 3,  ///< the server presented another certificate: nothing is sent until the server is forgotten
+};
 
 enum class SignalKPreferedAccessMethod { LOGIN = 0, REQUEST_ACCESS = 1 };
 
@@ -90,6 +114,9 @@ class SignalK : public PollingComponent {
   /// The server the device is bound to (found with mDNS or chosen), kept next to the token.
   void save_server();
   bool load_server(ServerCandidate &out);
+  /// TLS and the pin of the server, kept next to it (save_server() writes it too).
+  void save_tls();
+  bool load_tls(bool &tls, bool &pinned, Fingerprint &pin);
   /// The link of the access request waiting for approval, kept so that a restart asks it again.
   void save_access_href();
   bool load_access_href();
@@ -97,6 +124,7 @@ class SignalK : public PollingComponent {
   void set_device_name(std::string device_name) { device_name_ = device_name; }
   void set_host(std::string host) { host_ = host; }
   void set_port(unsigned short port) { port_ = port; }
+  void set_tls_mode(SignalKTlsMode mode) { tls_mode_ = mode; }
   void set_user_name(std::string user_name) { user_name_ = user_name; }
   void set_user_password(std::string user_password) { user_password_ = user_password; }
   void set_sensor_value(SignalkSubscriber *sensor, JsonVariant value);
@@ -120,6 +148,23 @@ class SignalK : public PollingComponent {
   const std::string &get_token() const { return token_; }
   const std::string &get_host() const { return host_; }
   unsigned short get_port() const { return port_; }
+  /// True when the server is reached over HTTPS and WSS.
+  bool use_tls() const { return tls_; }
+  /// "http://host:port" or "https://host:port", for requests of other components to the server. Over HTTPS
+  /// they must verify the certificate against the pin: tls_attach() on ESP-IDF, tls_trust().ca_pem() on the
+  /// host build.
+  std::string base_url() const;
+#ifdef USE_ESP32_FRAMEWORK_ESP_IDF
+  /// signalk::tls_attach with TLS, nullptr without; for `crt_bundle_attach`.
+  auto tls_attach_fn() const -> esp_err_t (*)(void *) { return tls_ ? &signalk::tls_attach : nullptr; }
+#endif
+  SignalKTlsState tls_state() const;
+  /// The pinned certificate's SHA-256 ("8B:43:46:FD:..."), empty when none is pinned. `bytes` shortens it.
+  std::string tls_fingerprint(size_t bytes = 32) const;
+  /// The certificate the server presented instead of the pinned one (tls_state() REFUSED).
+  std::string tls_refused_fingerprint(size_t bytes = 32) const {
+    return tls_refused_ ? format_fingerprint(tls_refused_fp_, bytes) : std::string();
+  }
   std::string get_device_id() const { return get_uuid(); }
   bool is_stream_connected() const { return stream_connected_.load(); }
   /// Deltas (messages with `updates`) processed since boot, and messages dropped because the inbox was full.
@@ -145,7 +190,8 @@ class SignalK : public PollingComponent {
   /// Uses `server` from now on, also after a restart. Another server than the current one drops the token,
   /// so the device asks that server for access.
   void choose_server(const ServerCandidate &server);
-  /// Drops the token and the bound server, and looks for a server again.
+  /// Drops the token and the bound server, and looks for a server again. With `host` set, it only forgets the
+  /// server's pinned certificate: the next connection pins the one it presents.
   void forget_server();
 
   virtual bool connect(const std::string &path) = 0;
@@ -188,6 +234,10 @@ class SignalK : public PollingComponent {
   void back_to_bound_server();
   /// An HTTP request got no response: a found server may have moved, look for it again.
   void server_unreachable();
+  /// The server presented another certificate than the pinned one (main loop).
+  void certificate_refused(const Fingerprint &got);
+  /// A server-dependent search for _signalk-https too.
+  bool search_tls() const { return tls_mode_ != SignalKTlsMode::OFF; }
   void sync_metadata();
   bool sync_metadata_of(SignalkSubscriber *subscriber);
   void handle_forwarded_put(const ForwardedPut &put);
@@ -204,6 +254,12 @@ class SignalK : public PollingComponent {
   ServerCandidate discovered_server_;  // what was found, so that only this server is accepted again
   bool trying_server_{false};          // discovered_server_ is being tried (try_server), not bound
   ServerCandidate bound_server_;       // the bound server while another is tried
+  bool bound_pinned_{false};           // and its pin
+  Fingerprint bound_pin_{};
+  SignalKTlsMode tls_mode_{SignalKTlsMode::AUTO};
+  bool tls_{false};          // the server in use is reached over TLS
+  bool tls_refused_{false};  // it presented another certificate than the pinned one
+  Fingerprint tls_refused_fp_{};
   std::vector<ServerCandidate> rejected_servers_;
   bool network_was_up_{false};
   bool rediscovering_{false};

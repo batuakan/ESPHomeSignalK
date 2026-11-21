@@ -14,10 +14,16 @@ namespace signalk {
 class SignalKMdnsEsp32 {
  public:
   ~SignalKMdnsEsp32();
-  DiscoveryPoll poll(std::vector<ServerCandidate> &found);
+  /// `tls`: also look for servers with SSL (_signalk-https), in a second search alongside.
+  DiscoveryPoll poll(std::vector<ServerCandidate> &found, bool tls);
 
  private:
-  void *search_{nullptr};  // mdns_search_once_t *, kept opaque so this header needs no ESP-IDF includes
+  // mdns_search_once_t *, kept opaque so this header needs no ESP-IDF includes. Both run at once; a
+  // finished one is collected into found_ and set to nullptr.
+  void *search_{nullptr};
+  void *search_tls_{nullptr};
+  bool started_{false};
+  std::vector<ServerCandidate> found_;
 };
 
 }  // namespace signalk
