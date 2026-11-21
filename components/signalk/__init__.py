@@ -3,11 +3,7 @@ import re
 
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components.esp32 import (
-    add_idf_component,
-    include_builtin_idf_component,
-    require_certificate_bundle,
-)
+from esphome.components.esp32 import add_idf_component, add_idf_sdkconfig_option, include_builtin_idf_component
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
@@ -25,6 +21,14 @@ from esphome.const import (
 
 # from esphome.components.esp32 import idf_component_register
 from esphome.core import CORE, ID
+
+try:
+    from esphome.components.esp32 import require_certificate_bundle
+except ImportError:  # older ESPHome (CI on Python 3.11 gets 2026.6): set the option itself
+
+    def require_certificate_bundle() -> None:
+        add_idf_sdkconfig_option("CONFIG_MBEDTLS_CERTIFICATE_BUNDLE", True)
+
 
 CODEOWNERS = ["@batuakan"]
 
